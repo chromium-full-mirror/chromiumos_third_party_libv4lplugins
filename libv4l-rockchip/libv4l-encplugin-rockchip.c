@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include "libv4l-plugin.h"
+#include "libvpu/rk_vepu_interface.h"
 
 #define SYS_IOCTL(fd, cmd, arg) \
 	syscall(SYS_ioctl, (int)(fd), (unsigned long)(cmd), (void *)(arg))
