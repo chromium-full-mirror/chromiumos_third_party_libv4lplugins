@@ -6,7 +6,7 @@ if WITH_V4L_PLUGINS
 libv4l2plugin_LTLIBRARIES = libv4l-encplugin-rockchip.la
 endif
 
-libv4l_encplugin_rockchip_la_SOURCES = libv4l-encplugin-rockchip.c
+libv4l_encplugin_rockchip_la_SOURCES = libv4l-encplugin-rockchip.c libvpu/rk_vepu.c
 libv4l_encplugin_rockchip_la_CPPFLAGS = $(CFLAG_VISIBILITY)
 libv4l_encplugin_rockchip_la_LDFLAGS = -avoid-version -module -shared -export-dynamic
 libv4l_encplugin_rockchip_la_LIBADD = -lpthread
