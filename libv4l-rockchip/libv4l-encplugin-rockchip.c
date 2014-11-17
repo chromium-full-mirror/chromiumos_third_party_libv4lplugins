@@ -16,6 +16,7 @@
 #include <sys/syscall.h>
 #include "config.h"  /* For HAVE_VISIBILITY */
 #include "libv4l-plugin.h"
+#include "libvpu/rk_vepu_debug.h"
 #include "libvpu/rk_vepu_interface.h"
 
 #define VLOG(log_level, str, ...) ((g_log_level >= log_level) ?			\
@@ -158,12 +159,7 @@ static int qbuf_if_pending_buffer_exists_locked(struct encoder_context *ctx,
 static int initialize_libvpu(struct encoder_context *ctx, int fd);
 /* Return the string represenation of a libv4l command for debugging. */
 static const char *v4l_cmd2str(unsigned long int cmd);
-/*
- * The current log level for VLOG. This is read from environment variable
- * LIBV4L_PLUGIN_LOG_LEVEL every time plugin_init is called.
- */
-static int g_log_level = 0;
-/* Get the log level from the environment variable. */
+/* Get the log level from the environment variable LIBV4L_PLUGIN_LOG_LEVEL. */
 static void get_log_level();
 static pthread_once_t g_get_log_level_once = PTHREAD_ONCE_INIT;
 
@@ -495,7 +491,7 @@ bool is_rockchip_encoder(int fd) {
 	int ret = SYS_IOCTL(fd, VIDIOC_QUERYCAP, &cap);
 	if (ret)
 		return false;
-	return strcmp(RK3288_VPU_NAME, cap.driver) == 0;
+	return strcmp(RK3288_VPU_NAME, (const char *)cap.driver) == 0;
 }
 
 int set_encoder_config_locked(struct encoder_context *ctx, int fd,
@@ -556,24 +552,32 @@ static int initialize_libvpu(struct encoder_context *ctx, int fd)
 	struct rk_vepu_init_param init_param;
 	memset(&init_param, 0, sizeof(init_param));
 
+	/* Get the input format. */
 	struct v4l2_format format;
 	memset(&format, 0, sizeof(format));
 	format.type = ctx->output_streamon_type;
 	int ret = SYS_IOCTL(fd, VIDIOC_G_FMT, &format);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
-	init_param.width = format.fmt.pix_mp.width;
-	init_param.height = format.fmt.pix_mp.height;
 	init_param.input_format = format.fmt.pix_mp.pixelformat;
 
+	/* Get the output format. */
 	memset(&format, 0, sizeof(format));
 	format.type = ctx->capture_streamon_type;
 	ret = SYS_IOCTL(fd, VIDIOC_G_FMT, &format);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 	init_param.output_format = format.fmt.pix_mp.pixelformat;
+
+	/* Get the cropped size. */
+	struct v4l2_crop crop;
+	memset(&crop, 0, sizeof(crop));
+	crop.type = ctx->output_streamon_type;
+	ret = SYS_IOCTL(fd, VIDIOC_G_CROP, &crop);
+	if (ret)
+		return ret;
+	init_param.width = crop.c.width;
+	init_param.height = crop.c.height;
 
 	/*
 	 * If the encoder library has initialized and parameters have not
