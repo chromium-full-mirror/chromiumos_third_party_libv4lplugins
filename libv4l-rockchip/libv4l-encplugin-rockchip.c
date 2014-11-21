@@ -326,7 +326,7 @@ static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 	memset(&v4l2_ctrl, 0, sizeof(v4l2_ctrl));
 	v4l2_ctrl.id = V4L2_CID_PRIVATE_RK3288_GET_PARAMS;
 	v4l2_ctrl.size = ctx->get_param_payload_size;
-	v4l2_ctrl.ptr = &ctx->get_param_payload;
+	v4l2_ctrl.ptr = ctx->get_param_payload;
 	memset(&ext_ctrls, 0, sizeof(ext_ctrls));
 	/* TODO: change this to config_store after the header is updated. */
 	ext_ctrls.ctrl_class = buffer->index + 1;
