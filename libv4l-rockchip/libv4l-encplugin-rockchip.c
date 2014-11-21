@@ -418,7 +418,7 @@ static int initialize_libvpu(struct encoder_context *ctx, int fd) {
 		VLOG_FD(0, "Fail to get capture format. errno=%d", errno);
 		return ret;
 	}
-	ctx->param.output_format = format.fmt.pix_mp.pixelformat;
+	param.output_format = format.fmt.pix_mp.pixelformat;
 
 	/*
 	 * If the encoder library has initialized and parameters have not
@@ -429,6 +429,7 @@ static int initialize_libvpu(struct encoder_context *ctx, int fd) {
 			return 0;
 		rk_vepu_deinit(ctx->enc);
 	}
+	memcpy(&ctx->param, &param, sizeof(param));
 	ctx->enc = rk_vepu_init(&ctx->param);
 	if (ctx->enc == NULL) {
 		VLOG_FD(0, "Failed to initialize encoder library.");
