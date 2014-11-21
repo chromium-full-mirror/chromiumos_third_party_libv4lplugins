@@ -315,11 +315,11 @@ static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 		return SYS_IOCTL(fd, VIDIOC_DQBUF, buffer);
 	}
 
-	assert(!ctx->can_qbuf);
-
 	ret = SYS_IOCTL(fd, VIDIOC_DQBUF, buffer);
 	if (ret)
 		return ret;
+
+	assert(!ctx->can_qbuf);
 
 	/* Get the encoder configuration and update the library. */
 	memset(ctx->get_param_payload, 0, ctx->get_param_payload_size);
