@@ -1,4 +1,4 @@
-/* Copyright 2014 The Chromium OS Authors. All rights reserved.
+/*
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -19,7 +19,7 @@ static uint32_t rk_payload_sizes[NUM_CTRLS] = {
   sizeof(rk_payloads[0]), sizeof(rk_payloads[1]), sizeof(rk_payloads[2])
 };
 
-void *rk_vepu_init(struct rk_vepu_param *param) {
+void *rk_vepu_init(struct rk_vepu_init_param *init_param) {
   return malloc(sizeof(int));
 }
 
@@ -38,5 +38,10 @@ int rk_vepu_get_config(void *enc, size_t *num_ctrls, uint32_t **ctrl_ids,
 
 int rk_vepu_update_config(void *enc, void *config, uint32_t config_size,
                           uint32_t buffer_size) {
+  return 0;
+}
+
+int rk_vepu_update_parameter(void *enc,
+                             struct rk_vepu_runtime_param *runtime_param) {
   return 0;
 }

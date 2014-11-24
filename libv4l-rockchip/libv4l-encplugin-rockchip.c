@@ -29,9 +29,10 @@
 #define SYS_IOCTL(fd, cmd, arg) ({ 						\
 	int ret = syscall(SYS_ioctl, (int)(fd), (unsigned long)(cmd),		\
 			(void *)(arg));						\
-	if (g_log_level >= 2)							\
-		fprintf(stderr, "SYS_ioctl: %s(%lu): fd=%d, ret=%d\n",		\
-		      v4l_cmd2str(cmd), _IOC_NR((unsigned long)cmd), fd, ret);	\
+	if ((ret && errno != EAGAIN) || g_log_level >= 2)			\
+		fprintf(stderr, "SYS_ioctl: %s(%lu): fd=%d, ret=%d, errno=%d\n",\
+			v4l_cmd2str(cmd), _IOC_NR((unsigned long)cmd), fd, ret,	\
+			errno);							\
 	ret;									\
 	})
 
@@ -41,25 +42,47 @@
 #define PLUGIN_PUBLIC
 #endif
 
-/* TODO: use frame rate and bitrate from applications. */
 #define DEFAULT_FRAME_RATE 30
 #define DEFAULT_BITRATE 1000000
+#define PENDING_BUFFER_QUEUE_SIZE VIDEO_MAX_FRAME
 
-
+/*
+ * struct pending_buffer - A v4l2 buffer pending for QBUF.
+ * @buffer:	v4l2 buffer for QBUF.
+ * @planes:	plane info of v4l2 buffer.
+ * @next_runtime_param:	runtime parameters like framerate, bitrate, and
+ * 			keyframe for the next buffer.
+ */
 struct pending_buffer {
 	struct v4l2_buffer buffer;
 	struct v4l2_plane planes[VIDEO_MAX_PLANES];
-	TAILQ_ENTRY(pending_buffer) entries;
+	struct rk_vepu_runtime_param next_runtime_param;
 };
-TAILQ_HEAD(pending_buffer_queue, pending_buffer);
+
+/*
+ * struct pending_buffer_queue - a ring buffer of pending buffers.
+ * @count: the number of buffers stored in the array.
+ * @front: the index of the first ready buffer.
+ * @buf_array: pending buffer array.
+ */
+struct pending_buffer_queue {
+	uint32_t count;
+	int32_t front;
+	struct pending_buffer buf_array[PENDING_BUFFER_QUEUE_SIZE];
+};
 
 /*
  * struct encoder_context - the context of an encoder instance.
  * @enc:	Encoder instance returned from rk_vepu_create().
  * @mutex:	The mutex to protect encoder_context.
- * @param:	The encoding parameters like input format, bitrate, and etc.
  * @output_streamon_type:	Type of output interface when it streams on.
  * @capture_streamon_type:	Type of capture interface when it streams on.
+ * @init_param:	Encoding parameters like input format, resolution, and etc.
+ * 		These parameters will be passed to encoder at libvpu
+ * 		initialization.
+ * @runtime_param:	Runtime parameters like framerate, bitrate, and
+ * 			keyframe. This is only used for receiving ext_ctrls
+ * 			before streamon and pending buffer queue is empty.
  * @pending_buffers:	The pending v4l2 buffers waiting for the encoding
  *			configuration. After a previous buffer is dequeued,
  *			one buffer from the queue can be queued.
@@ -76,9 +99,10 @@ TAILQ_HEAD(pending_buffer_queue, pending_buffer);
 struct encoder_context {
 	void *enc;
 	pthread_mutex_t mutex;
-	struct rk_vepu_param param;
 	enum v4l2_buf_type output_streamon_type;
 	enum v4l2_buf_type capture_streamon_type;
+	struct rk_vepu_init_param init_param;
+	struct rk_vepu_runtime_param runtime_param;
 	struct pending_buffer_queue pending_buffers;
 	bool can_qbuf;
 	void *get_param_payload;
@@ -100,22 +124,33 @@ static int ioctl_qbuf_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_buffer *buffer);
 static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_buffer *buffer);
+static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_ext_controls *ext_ctrls);
+static int ioctl_s_parm_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_streamparm *parms);
+static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_requestbuffers *reqbufs);
 
 /* Helper functions to manipulate the pending buffer queue. */
 
+static void queue_init(struct pending_buffer_queue *queue);
+static bool queue_empty(struct pending_buffer_queue *queue);
+static bool queue_full(struct pending_buffer_queue *queue);
 /* Insert a buffer to the tail of the queue. */
-static int queue_insert_tail(struct pending_buffer_queue *queue,
+static int queue_push_back(struct pending_buffer_queue *queue,
 	struct v4l2_buffer *buffer);
-/* Remove a buffer from the queue and free the memory. */
-static void queue_remove(struct pending_buffer_queue *queue,
-	struct pending_buffer *element);
+/* Remove a buffer from the head of the queue. */
+static void queue_pop_front(struct pending_buffer_queue *queue);
+static struct pending_buffer *queue_front(struct pending_buffer_queue *queue);
+static struct pending_buffer *queue_back(struct pending_buffer_queue *queue);
 
 /* Set encoder configuration to the driver. */
-int set_encoder_config(struct encoder_context *ctx, int fd,
+int set_encoder_config_locked(struct encoder_context *ctx, int fd,
 	uint32_t buffer_index, size_t num_ctrls, uint32_t ctrls_ids[],
 	void **payloads, uint32_t payload_sizes[]);
 /* QBUF a buffer from the pending buffer queue if it is not empty. */
-static int qbuf_if_pending_buffer_exists(struct encoder_context *ctx, int fd);
+static int qbuf_if_pending_buffer_exists_locked(struct encoder_context *ctx,
+	int fd);
 /* Get the encoder parameters using G_FMT and initialize libvpu. */
 static int initialize_libvpu(struct encoder_context *ctx, int fd);
 /* Return the string represenation of a libv4l command for debugging. */
@@ -147,13 +182,12 @@ static void *plugin_init(int fd)
 	ret = pthread_mutex_init(&ctx->mutex, NULL);
 	if (ret)
 		goto fail;
-	TAILQ_INIT(&ctx->pending_buffers);
+	queue_init(&ctx->pending_buffers);
 
 	memset(&ext_ctrl, 0, sizeof(ext_ctrl));
 	ext_ctrl.id = V4L2_CID_PRIVATE_RK3288_GET_PARAMS;
 	ret = SYS_IOCTL(fd, VIDIOC_QUERY_EXT_CTRL, &ext_ctrl);
 	if (ret) {
-		VLOG_FD(0, "Failed to query GET_PARAMS size. errno=%d", errno);
 		goto fail;
 	}
 	ctx->get_param_payload_size = ext_ctrl.elem_size;
@@ -162,6 +196,9 @@ static void *plugin_init(int fd)
 		errno = ENOMEM;
 		goto fail;
 	}
+	ctx->runtime_param.framerate_numer = DEFAULT_FRAME_RATE;
+	ctx->runtime_param.framerate_denom = 1;
+	ctx->runtime_param.bitrate = DEFAULT_BITRATE;
 	VLOG_FD(1, "Success. ctx=%p", ctx);
 	return ctx;
 
@@ -181,10 +218,6 @@ static void plugin_close(void *dev_ops_priv)
 	pthread_mutex_lock(&ctx->mutex);
 	if (ctx->enc)
 		rk_vepu_deinit(ctx->enc);
-	while (!TAILQ_EMPTY(&ctx->pending_buffers)) {
-		queue_remove(&ctx->pending_buffers,
-			TAILQ_FIRST(&ctx->pending_buffers));
-	}
 	free(ctx->get_param_payload);
 	ctx->get_param_payload = NULL;
 	pthread_mutex_unlock(&ctx->mutex);
@@ -205,19 +238,31 @@ static int plugin_ioctl(void *dev_ops_priv, int fd,
 	pthread_mutex_lock(&ctx->mutex);
 	switch (cmd) {
 	case VIDIOC_STREAMON:
-		ret = ioctl_streamon_locked(ctx, fd, (enum v4l2_buf_type *)arg);
+		ret = ioctl_streamon_locked(ctx, fd, arg);
 		break;
 
 	case VIDIOC_STREAMOFF:
-		ret = ioctl_streamoff_locked(ctx, fd, (enum v4l2_buf_type *)arg);
+		ret = ioctl_streamoff_locked(ctx, fd, arg);
 		break;
 
 	case VIDIOC_QBUF:
-		ret = ioctl_qbuf_locked(ctx, fd, (struct v4l2_buffer *)arg);
+		ret = ioctl_qbuf_locked(ctx, fd, arg);
 		break;
 
 	case VIDIOC_DQBUF:
-		ret = ioctl_dqbuf_locked(ctx, fd, (struct v4l2_buffer *)arg);
+		ret = ioctl_dqbuf_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_S_EXT_CTRLS:
+		ret = ioctl_s_ext_ctrls_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_S_PARM:
+		ret = ioctl_s_parm_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_REQBUFS:
+		ret = ioctl_reqbufs_locked(ctx, fd, arg);
 		break;
 
 	default:
@@ -244,7 +289,7 @@ static int ioctl_streamon_locked(
 		if (ret)
 			return ret;
 		ctx->can_qbuf = true;
-		return qbuf_if_pending_buffer_exists(ctx, fd);
+		return qbuf_if_pending_buffer_exists_locked(ctx, fd);
 	}
 	return 0;
 }
@@ -282,7 +327,7 @@ static int ioctl_qbuf_locked(struct encoder_context *ctx, int fd,
 		 * The last frame is not encoded yet. Put the buffer to the
 		 * pending queue.
 		 */
-		return queue_insert_tail(&ctx->pending_buffers, buffer);
+		return queue_push_back(&ctx->pending_buffers, buffer);
 	}
 	/* Get the encoder configuration from the library. */
 	if (rk_vepu_get_config(ctx->enc, &num_ctrls, &ctrl_ids, &payloads,
@@ -291,7 +336,7 @@ static int ioctl_qbuf_locked(struct encoder_context *ctx, int fd,
 		return -EIO;
 	}
 	/* Set the encoder configuration to the driver. */
-	ret = set_encoder_config(ctx, fd, buffer->index, num_ctrls, ctrl_ids,
+	ret = set_encoder_config_locked(ctx, fd, buffer->index, num_ctrls, ctrl_ids,
 			payloads, payload_sizes);
 	if (ret)
 		return ret;
@@ -310,6 +355,7 @@ static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_ext_controls ext_ctrls;
 	struct v4l2_ext_control v4l2_ctrl;
 	int ret;
+	uint32_t bytesused;
 
 	if (V4L2_TYPE_IS_OUTPUT(buffer->type)) {
 		return SYS_IOCTL(fd, VIDIOC_DQBUF, buffer);
@@ -329,26 +375,118 @@ static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 	v4l2_ctrl.ptr = ctx->get_param_payload;
 	memset(&ext_ctrls, 0, sizeof(ext_ctrls));
 	/* TODO: change this to config_store after the header is updated. */
-	ext_ctrls.ctrl_class = buffer->index + 1;
+	ext_ctrls.ctrl_class = 0;
 	ext_ctrls.count = 1;
 	ext_ctrls.controls = &v4l2_ctrl;
 	ret = SYS_IOCTL(fd, VIDIOC_G_EXT_CTRLS, &ext_ctrls);
-	if (ret) {
-		VLOG_FD(0, "G_EXT_CTRLS failed. errno=%d", errno);
+	if (ret)
 		return ret;
-	}
+	bytesused = V4L2_TYPE_IS_MULTIPLANAR(buffer->type) ?
+		buffer->m.planes[0].bytesused : buffer->bytesused;
+
 	if (rk_vepu_update_config(ctx->enc, v4l2_ctrl.ptr, v4l2_ctrl.size,
-			buffer->m.planes[0].bytesused)) {
+			bytesused)) {
 		VLOG_FD(0, "rk_vepu_update_config failed.");
 		return -EIO;
 	}
 	ctx->can_qbuf = true;
-	return qbuf_if_pending_buffer_exists(ctx, fd);
+	return qbuf_if_pending_buffer_exists_locked(ctx, fd);
 }
 
-int set_encoder_config(struct encoder_context *ctx, int fd,
+static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_ext_controls *ext_ctrls)
+{
+	size_t i;
+	struct rk_vepu_runtime_param *runtime_param_ptr;
+
+	bool no_pending_buffer = queue_empty(&ctx->pending_buffers);
+	/*
+	 * If buffer queue is empty, update parameters directly.
+	 * If buffer queue is not empty, save parameters to the last buffer. And
+	 * these values will be sent again when the buffer is ready to deliver.
+	 */
+	if (!no_pending_buffer) {
+		struct pending_buffer *element = queue_back(&ctx->pending_buffers);
+		runtime_param_ptr = &element->next_runtime_param;
+	} else {
+		runtime_param_ptr = &ctx->runtime_param;
+	}
+
+	/*
+	 * Check each extension control to update keyframe and bitrate
+	 * parameters.
+	 */
+	for (i = 0; i < ext_ctrls->count; i++) {
+		switch (ext_ctrls->controls[i].id) {
+		case V4L2_CID_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE:
+			if (ext_ctrls->controls[i].value ==
+					V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_NOT_CODED)
+				break;
+			runtime_param_ptr->keyframe_request = true;
+			runtime_param_ptr->keyframe_value = (ext_ctrls->controls[i].value ==
+					V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME);
+			break;
+		case V4L2_CID_MPEG_VIDEO_BITRATE:
+			runtime_param_ptr->bitrate = ext_ctrls->controls[i].value;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (no_pending_buffer && ctx->enc) {
+		if (rk_vepu_update_parameter(ctx->enc, runtime_param_ptr)) {
+			VLOG_FD(0, "rk_vepu_update_parameter failed.");
+			return -EIO;
+		}
+		memset(runtime_param_ptr, 0, sizeof(struct rk_vepu_runtime_param));
+	}
+	/* Driver should ignore keyframe and bitrate controls */
+	return SYS_IOCTL(fd, VIDIOC_S_EXT_CTRLS, ext_ctrls);
+}
+
+static int ioctl_s_parm_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_streamparm *parms)
+{
+	if (V4L2_TYPE_IS_OUTPUT(parms->type)
+			&& parms->parm.output.timeperframe.denominator) {
+		struct rk_vepu_runtime_param *runtime_param_ptr;
+		bool no_pending_buffer = queue_empty(&ctx->pending_buffers);
+		struct pending_buffer *element = queue_back(&ctx->pending_buffers);
+
+		runtime_param_ptr = no_pending_buffer ? &ctx->runtime_param :
+			&element->next_runtime_param;
+		runtime_param_ptr->framerate_numer =
+			parms->parm.output.timeperframe.denominator;
+		runtime_param_ptr->framerate_denom =
+			parms->parm.output.timeperframe.numerator;
+
+		if (!no_pending_buffer || !ctx->enc)
+			return 0;
+		if (rk_vepu_update_parameter(ctx->enc, runtime_param_ptr)) {
+			VLOG_FD(0, "rk_vepu_update_parameter failed.");
+			return -EIO;
+		}
+		memset(runtime_param_ptr, 0, sizeof(struct rk_vepu_runtime_param));
+		return 0;
+	}
+	return SYS_IOCTL(fd, VIDIOC_S_PARM, parms);
+}
+
+static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_requestbuffers *reqbufs)
+{
+	int ret = SYS_IOCTL(fd, VIDIOC_REQBUFS, reqbufs);
+	if (ret)
+		return ret;
+	queue_init(&ctx->pending_buffers);
+	return 0;
+}
+
+int set_encoder_config_locked(struct encoder_context *ctx, int fd,
 		uint32_t buffer_index, size_t num_ctrls, uint32_t ctrl_ids[],
-		void **payloads, uint32_t payload_sizes[]) {
+		void **payloads, uint32_t payload_sizes[])
+{
 	size_t i;
 	struct v4l2_ext_controls ext_ctrls;
 
@@ -356,8 +494,10 @@ int set_encoder_config(struct encoder_context *ctx, int fd,
 		return 0;
 
 	assert(num_ctrls <= MAX_NUM_GET_CONFIG_CTRLS);
-	if (num_ctrls > MAX_NUM_GET_CONFIG_CTRLS)
-		num_ctrls = MAX_NUM_GET_CONFIG_CTRLS;
+	if (num_ctrls > MAX_NUM_GET_CONFIG_CTRLS) {
+		VLOG_FD(0, "The number of controls exceeds limit.");
+		return -EIO;
+	}
 	memset(&ext_ctrls, 0, sizeof(ext_ctrls));
 	/* TODO: change this to config_store after the header is updated. */
 	ext_ctrls.ctrl_class = buffer_index + 1;
@@ -371,80 +511,104 @@ int set_encoder_config(struct encoder_context *ctx, int fd,
 	}
 	int ret = SYS_IOCTL(fd, VIDIOC_S_EXT_CTRLS, &ext_ctrls);
 	if (ret) {
-		VLOG(0, "S_EXT_CTRLS failed. errno=%d", errno);
 		return ret;
 	}
 	return 0;
 }
 
-static int qbuf_if_pending_buffer_exists(struct encoder_context *ctx, int fd) {
-	if (!TAILQ_EMPTY(&ctx->pending_buffers)) {
+static int qbuf_if_pending_buffer_exists_locked(struct encoder_context *ctx,
+		int fd)
+{
+	if (!queue_empty(&ctx->pending_buffers)) {
 		int ret;
-		struct pending_buffer *element =
-			TAILQ_FIRST(&ctx->pending_buffers);
+		struct pending_buffer *element = queue_front(&ctx->pending_buffers);
 		VLOG_FD(1, "QBUF a buffer (%d) from the pending queue.",
 			element->buffer.index);
+		if (rk_vepu_update_parameter(ctx->enc, &element->next_runtime_param)) {
+			VLOG_FD(0, "rk_vepu_update_parameter failed.");
+			return -EIO;
+		}
 		ret = ioctl_qbuf_locked(ctx, fd, &element->buffer);
 		if (ret)
 			return ret;
-		queue_remove(&ctx->pending_buffers, element);
+		queue_pop_front(&ctx->pending_buffers);
 	}
 	return 0;
 }
 
-static int initialize_libvpu(struct encoder_context *ctx, int fd) {
-	struct rk_vepu_param param;
-	memset(&param, 0, sizeof(param));
-	param.framerate_numer = DEFAULT_FRAME_RATE;
-	param.framerate_denom = 1;
-	param.bitrate = DEFAULT_BITRATE;
+static int initialize_libvpu(struct encoder_context *ctx, int fd)
+{
+	struct rk_vepu_init_param init_param;
+	memset(&init_param, 0, sizeof(init_param));
 
 	struct v4l2_format format;
 	memset(&format, 0, sizeof(format));
 	format.type = ctx->output_streamon_type;
 	int ret = SYS_IOCTL(fd, VIDIOC_G_FMT, &format);
 	if (ret) {
-		VLOG_FD(0, "Fail to get output format. errno=%d", errno);
 		return ret;
 	}
-	param.width = format.fmt.pix_mp.width;
-	param.height = format.fmt.pix_mp.height;
-	param.input_format = format.fmt.pix_mp.pixelformat;
+	init_param.width = format.fmt.pix_mp.width;
+	init_param.height = format.fmt.pix_mp.height;
+	init_param.input_format = format.fmt.pix_mp.pixelformat;
 
 	memset(&format, 0, sizeof(format));
 	format.type = ctx->capture_streamon_type;
 	ret = SYS_IOCTL(fd, VIDIOC_G_FMT, &format);
 	if (ret) {
-		VLOG_FD(0, "Fail to get capture format. errno=%d", errno);
 		return ret;
 	}
-	param.output_format = format.fmt.pix_mp.pixelformat;
+	init_param.output_format = format.fmt.pix_mp.pixelformat;
 
 	/*
 	 * If the encoder library has initialized and parameters have not
 	 * changed, skip the initialization.
 	 */
-	if (ctx->enc) {
-		if (memcmp(&param, &ctx->param, sizeof(param)) == 0)
-			return 0;
+	if (ctx->enc && memcmp(&init_param, &ctx->init_param, sizeof(init_param))) {
 		rk_vepu_deinit(ctx->enc);
+		ctx->enc = NULL;
 	}
-	memcpy(&ctx->param, &param, sizeof(param));
-	ctx->enc = rk_vepu_init(&ctx->param);
-	if (ctx->enc == NULL) {
-		VLOG_FD(0, "Failed to initialize encoder library.");
+	if (!ctx->enc) {
+		memcpy(&ctx->init_param, &init_param, sizeof(init_param));
+		ctx->enc = rk_vepu_init(&init_param);
+		if (ctx->enc == NULL) {
+			VLOG_FD(0, "Failed to initialize encoder library.");
+			return -EIO;
+		}
+	}
+	if (rk_vepu_update_parameter(ctx->enc, &ctx->runtime_param)) {
+		VLOG_FD(0, "rk_vepu_update_parameter failed.");
 		return -EIO;
 	}
+	memset(&ctx->runtime_param, 0, sizeof(struct rk_vepu_runtime_param));
 	return 0;
 }
 
-static int queue_insert_tail(struct pending_buffer_queue *queue,
+static void queue_init(struct pending_buffer_queue *queue)
+{
+	memset(queue, 0, sizeof(struct pending_buffer_queue));
+}
+
+static bool queue_empty(struct pending_buffer_queue *queue)
+{
+	return queue->count == 0;
+}
+
+static bool queue_full(struct pending_buffer_queue *queue)
+{
+	return queue->count == PENDING_BUFFER_QUEUE_SIZE;
+}
+
+static int queue_push_back(struct pending_buffer_queue *queue,
 		struct v4l2_buffer *buffer)
 {
-	struct pending_buffer *entry =
-		(struct pending_buffer *)calloc(sizeof(*entry), 1);
-	if (entry == NULL)
-		return -ENOMEM;
+	if (queue_full(queue))
+	  return -ENOMEM;
+	int rear = (queue->front + queue->count) % PENDING_BUFFER_QUEUE_SIZE;
+	queue->count++;
+	struct pending_buffer *entry = &queue->buf_array[rear];
+	memset(entry, 0, sizeof(struct pending_buffer));
+
 	memcpy(&entry->buffer, buffer, sizeof(*buffer));
 	if (V4L2_TYPE_IS_MULTIPLANAR(buffer->type)) {
 		memset(entry->planes, 0,
@@ -453,15 +617,29 @@ static int queue_insert_tail(struct pending_buffer_queue *queue,
 			sizeof(struct v4l2_plane) * buffer->length);
 		entry->buffer.m.planes = entry->planes;
 	}
-	TAILQ_INSERT_TAIL(queue, entry, entries);
 	return 0;
 }
 
-static void queue_remove(struct pending_buffer_queue *queue,
-		struct pending_buffer *element)
+static void queue_pop_front(struct pending_buffer_queue *queue)
 {
-	TAILQ_REMOVE(queue, element, entries);
-	free(element);
+	assert(!queue_empty(queue));
+	queue->count--;
+	queue->front = (queue->front + 1) % PENDING_BUFFER_QUEUE_SIZE;
+}
+
+static struct pending_buffer *queue_front(struct pending_buffer_queue *queue)
+{
+	if (queue_empty(queue))
+		return NULL;
+	return &queue->buf_array[queue->front];
+}
+
+static struct pending_buffer *queue_back(struct pending_buffer_queue *queue)
+{
+	if (queue_empty(queue))
+		return NULL;
+	return &queue->buf_array[(queue->front + queue->count - 1) %
+		PENDING_BUFFER_QUEUE_SIZE];
 }
 
 static void get_log_level()
