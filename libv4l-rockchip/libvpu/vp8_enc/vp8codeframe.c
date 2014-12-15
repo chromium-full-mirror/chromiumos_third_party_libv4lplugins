@@ -128,25 +128,28 @@ void VP8SetNewFrame(vp8Instance_s* inst) {
 
   /* header remainder is byte aligned, max 7 bytes = 56 bits */
   if (regs->firstFreeBit != 0) {
-    /* 64-bit aligned stream pointer */
-    uint8_t* pTmp = (uint8_t*)((size_t)(inst->buffer[1].data) & (uint32_t)(~0x07));
     uint32_t val;
 
-    /* Clear remaining bits */
-    for (val = 6; val >= regs->firstFreeBit / 8; val--)
-      pTmp[val] = 0;
+    /* firstFreeBit is less than 8 bytes, so 8 bytes is enough */
+    uint8_t buf[8];
 
-    val = pTmp[0] << 24;
-    val |= pTmp[1] << 16;
-    val |= pTmp[2] << 8;
-    val |= pTmp[3];
+    ASSERT(regs->firstFreeBit / 8 <= sizeof(buf));
+
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf, inst->asic.frmhdr + regs->outputStrmBase,
+		    regs->firstFreeBit / 8);
+
+    val = buf[0] << 24;
+    val |= buf[1] << 16;
+    val |= buf[2] << 8;
+    val |= buf[3];
 
     regs->strmStartMSB = val;  /* 32 bits to MSB */
 
     if (regs->firstFreeBit > 32) {
-      val = pTmp[4] << 24;
-      val |= pTmp[5] << 16;
-      val |= pTmp[6] << 8;
+      val = buf[4] << 24;
+      val |= buf[5] << 16;
+      val |= buf[6] << 8;
 
       regs->strmStartLSB = val;
     } else

@@ -579,21 +579,20 @@ VP8EncRet VP8EncStrmEncode(VP8EncInst inst, const VP8EncIn* pEncIn,
 
   /* Divide stream buffer for every partition */
   {
-    uint8_t* pStart = (uint8_t*)pEncInst->asic.frmhdr;
+    uint8_t* pBuf = (uint8_t*)pEncInst->asic.frmhdr;
     uint32_t bufSize = pEncInst->asic.frmHdrBufLen;
-    uint8_t* pEnd;
+    uint32_t tagSize = 0;
     int32_t status = ENCHW_OK;
 
     /* Frame tag 10 bytes (I-frame) or 3 bytes (P-frame),
      * written by SW at end of frame */
-    pEnd = pStart + 3;
-    if (ct == VP8ENC_INTRA_FRAME) pEnd += 7;
-    if (VP8SetBuffer(&pEncInst->buffer[0], pStart, pEnd - pStart) == ENCHW_NOK)
+    tagSize = (ct == VP8ENC_INTRA_FRAME) ? 10 : 3;
+
+    if (VP8SetBuffer(&pEncInst->buffer[0], pBuf, tagSize) == ENCHW_NOK)
       status = ENCHW_NOK;
 
-    pStart = pEnd;
-    pEnd = pStart + bufSize;
-    if (VP8SetBuffer(&pEncInst->buffer[1], pStart, pEnd - pStart) == ENCHW_NOK)
+    if (VP8SetBuffer(&pEncInst->buffer[1], pBuf + tagSize,
+        bufSize - tagSize) == ENCHW_NOK)
       status = ENCHW_NOK;
 
     if (status == ENCHW_NOK) {
