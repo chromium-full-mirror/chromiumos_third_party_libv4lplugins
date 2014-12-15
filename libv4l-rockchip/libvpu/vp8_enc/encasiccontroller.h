@@ -238,7 +238,7 @@ typedef struct
   int32_t lfModeDelta[4];
 } regValues_s;
 
-#define FRAME_HEADER_SIZE 256
+#define FRAME_HEADER_SIZE 1280
 typedef struct
 {
   regValues_s regs;
