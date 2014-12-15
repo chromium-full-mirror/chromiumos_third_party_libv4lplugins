@@ -341,6 +341,8 @@ static int ioctl_qbuf_locked(struct encoder_context *ctx, int fd,
 	if (ret)
 		return ret;
 
+	/* TODO: change this to config_store after the header is updated. */
+	buffer->reserved2 = buffer->index + 1;
 	ret = SYS_IOCTL(fd, VIDIOC_QBUF, buffer);
 	if (ret == 0)
 		ctx->can_qbuf = false;
