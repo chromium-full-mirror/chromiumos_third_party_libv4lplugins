@@ -40,4 +40,6 @@ typedef enum
 #define SIGN(a)         ((a) < (0) ? (-1) : (1))
 #define CLIP3(v, min, max)  ((v) < (min) ? (min) : ((v) > (max) ? (max) : (v)))
 
+#define ALIGN(x, a)      (((x) + (a) - 1) & ~((a) - 1))
+
 #endif
