@@ -42,6 +42,7 @@
 #define PLUGIN_PUBLIC
 #endif
 
+#define RK3288_VPU_NAME "rk3288-vpu-enc"
 #define DEFAULT_FRAME_RATE 30
 #define DEFAULT_BITRATE 1000000
 #define PENDING_BUFFER_QUEUE_SIZE VIDEO_MAX_FRAME
@@ -144,6 +145,8 @@ static void queue_pop_front(struct pending_buffer_queue *queue);
 static struct pending_buffer *queue_front(struct pending_buffer_queue *queue);
 static struct pending_buffer *queue_back(struct pending_buffer_queue *queue);
 
+/* Returns true if the fd is Rockchip encoder device. */
+bool is_rockchip_encoder(int fd);
 /* Set encoder configuration to the driver. */
 int set_encoder_config_locked(struct encoder_context *ctx, int fd,
 	uint32_t buffer_index, size_t num_ctrls, uint32_t ctrls_ids[],
@@ -172,7 +175,9 @@ static void *plugin_init(int fd)
 	pthread_once(&g_get_log_level_once, get_log_level);
 
 	VLOG_FD(1, "");
-	/* TODO: Query the driver and verify it's a Rockchip encoder. */
+	if (!is_rockchip_encoder(fd))
+		return NULL;
+
 	struct encoder_context *ctx = (struct encoder_context *)
 		calloc(1, sizeof(struct encoder_context));
 	if (ctx == NULL) {
@@ -229,7 +234,6 @@ static void plugin_close(void *dev_ops_priv)
 static int plugin_ioctl(void *dev_ops_priv, int fd,
 			unsigned long int cmd, void *arg)
 {
-	/* TODO: Query the driver and verify it's a Rockchip encoder. */
 	int ret;
 	struct encoder_context *ctx = (struct encoder_context *)dev_ops_priv;
 
@@ -483,6 +487,15 @@ static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 		return ret;
 	queue_init(&ctx->pending_buffers);
 	return 0;
+}
+
+bool is_rockchip_encoder(int fd) {
+	struct v4l2_capability cap;
+	memset(&cap, 0, sizeof(cap));
+	int ret = SYS_IOCTL(fd, VIDIOC_QUERYCAP, &cap);
+	if (ret)
+		return false;
+	return strcmp(RK3288_VPU_NAME, cap.driver) == 0;
 }
 
 int set_encoder_config_locked(struct encoder_context *ctx, int fd,
