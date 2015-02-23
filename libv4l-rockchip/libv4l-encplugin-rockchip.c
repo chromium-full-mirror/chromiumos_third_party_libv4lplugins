@@ -422,11 +422,8 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 		switch (ext_ctrls->controls[i].id) {
 		case V4L2_CID_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE:
 			if (ext_ctrls->controls[i].value ==
-					V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_NOT_CODED)
-				break;
-			runtime_param_ptr->keyframe_request = true;
-			runtime_param_ptr->keyframe_value = (ext_ctrls->controls[i].value ==
-					V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME);
+					V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME)
+				runtime_param_ptr->keyframe_request = true;
 			break;
 		case V4L2_CID_MPEG_VIDEO_BITRATE:
 			runtime_param_ptr->bitrate = ext_ctrls->controls[i].value;

@@ -129,8 +129,7 @@ static void rk_vp8_encoder_setconfig(struct rk_vp8_encoder *enc,
   enc->cmdl.frameCntTotal = 0;
 
   if (param->keyframe_request) {
-    enc->encIn.codingType =
-      param->keyframe_value ? VP8ENC_INTRA_FRAME : VP8ENC_PREDICTED_FRAME;
+    enc->cmdl.keyframeRequest = true;
   }
 }
 
@@ -213,25 +212,22 @@ static int rk_vp8_encoder_before_encode(struct rk_vp8_encoder *enc) {
     return -1;
   }
 
-  /* Select frame type */
-  if ((cml->intraPicRate != 0) && (enc->intraPeriodCnt >= cml->intraPicRate))
+  /* Code keyframe according to intra period counter
+   * or if requested by client. */
+  if (cml->keyframeRequest ||
+      (cml->intraPicRate != 0 &&
+       enc->intraPeriodCnt >= cml->intraPicRate)) {
     enc->encIn.codingType = VP8ENC_INTRA_FRAME;
-  else
-    enc->encIn.codingType = VP8ENC_PREDICTED_FRAME;
-
-  if (enc->encIn.codingType == VP8ENC_INTRA_FRAME)
     enc->intraPeriodCnt = 0;
+    cml->keyframeRequest = false;
+  } else {
+    enc->encIn.codingType = VP8ENC_PREDICTED_FRAME;
+  }
 
   /* This applies for PREDICTED frames only. By default always predict
    * from the previous frame only. */
   enc->encIn.ipf = VP8ENC_REFERENCE_AND_REFRESH;
   enc->encIn.grf = enc->encIn.arf = VP8ENC_REFERENCE;
-
-  /* Force odd frames to be coded as droppable. */
-  if (cml->droppable && cml->frameCnt & 1) {
-    enc->encIn.codingType = VP8ENC_PREDICTED_FRAME;
-    enc->encIn.ipf = enc->encIn.grf = enc->encIn.arf = VP8ENC_REFERENCE;
-  }
 
   /* Encode one frame */
   ret = VP8EncStrmEncode(enc->encoder, &enc->encIn, &cml->encOut, cml);
@@ -602,8 +598,6 @@ void SetDefaultParameter(EncoderParameters* cml) {
   cml->intra16Favor       = 0;
   /* Penalty value for intra mode in intra/inter */
   cml->intraPenalty       = 0;
-  /* Code all odd frames as droppable */
-  cml->droppable          = 0;
 }
 
 void PrintTitle(EncoderParameters* cml) {
