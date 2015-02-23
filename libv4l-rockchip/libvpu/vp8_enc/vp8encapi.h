@@ -385,7 +385,6 @@ typedef struct
 
   int32_t printPsnr;
   int32_t mvOutput;
-  int32_t droppable;
 
   int32_t intra16Favor;
   int32_t intraPenalty;
@@ -402,6 +401,7 @@ typedef struct
   ma_s ma;            /* Calculate moving average of bitrate */
   uint32_t psnrSum;        /* Calculate average PSNR over encoded frames */
   uint32_t psnrCnt;
+  uint32_t keyframeRequest;
 
   int32_t frameCnt;       /* Frame counter of input file */
   uint64_t frameCntTotal;  /* Frame counter of all frames */

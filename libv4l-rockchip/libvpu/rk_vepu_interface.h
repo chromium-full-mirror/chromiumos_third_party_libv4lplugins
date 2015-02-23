@@ -39,7 +39,6 @@ struct rk_vepu_runtime_param {
   int32_t framerate_denom;
   int32_t bitrate; /* bits per second */
   bool keyframe_request; /* have keyframe request */
-  bool keyframe_value; /* keyframe */
 };
 
 /**
