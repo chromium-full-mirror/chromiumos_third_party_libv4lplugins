@@ -536,6 +536,8 @@ static int qbuf_if_pending_buffer_exists_locked(struct encoder_context *ctx,
 			VLOG_FD(0, "rk_vepu_update_parameter failed.");
 			return -EIO;
 		}
+		memset(&element->next_runtime_param, 0,
+			sizeof(element->next_runtime_param));
 		ret = ioctl_qbuf_locked(ctx, fd, &element->buffer);
 		if (ret)
 			return ret;
