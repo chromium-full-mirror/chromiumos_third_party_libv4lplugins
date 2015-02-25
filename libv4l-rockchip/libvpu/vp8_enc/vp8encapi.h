@@ -222,6 +222,9 @@ typedef struct
   uint32_t altrefPictureRate; /* The distance of two altref pictures, [0..300]
                          * This will force periodical altref pictures.
                          * 0=disabled.                                 */
+  uint32_t outRateNum;   /* Numerator of frame rate fraction defined
+                          * as frames per second. [1..] */
+  uint32_t outRateDenom; /* Denominator of frame rate fraction. [1..] */
 } VP8EncRateCtrl;
 
 /* Encoder input structure */
