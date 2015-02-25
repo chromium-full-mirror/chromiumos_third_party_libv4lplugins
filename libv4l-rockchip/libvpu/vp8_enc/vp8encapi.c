@@ -385,8 +385,12 @@ VP8EncRet VP8EncSetRateCtrl(VP8EncInst inst,
   rc_tmp.intraPictureRate         = pRateCtrl->intraPictureRate;
   rc_tmp.goldenPictureRate        = pRateCtrl->goldenPictureRate;
   rc_tmp.altrefPictureRate        = pRateCtrl->altrefPictureRate;
+  rc_tmp.outRateNum               = pRateCtrl->outRateNum;
+  rc_tmp.outRateDenom             = pRateCtrl->outRateDenom;
 
-  VP8InitRc(&rc_tmp, pEncInst->encStatus == VP8ENCSTAT_INIT);
+  pEncInst->encStatus = VP8ENCSTAT_INIT;
+
+  VP8InitRc(&rc_tmp, true);
 
   /* Set final values into instance */
   pEncInst->rateControl = rc_tmp;
@@ -433,6 +437,8 @@ VP8EncRet VP8EncGetRateCtrl(VP8EncInst inst, VP8EncRateCtrl* pRateCtrl) {
   pRateCtrl->intraPictureRate = pEncInst->rateControl.intraPictureRate;
   pRateCtrl->goldenPictureRate = pEncInst->rateControl.goldenPictureRate;
   pRateCtrl->altrefPictureRate = pEncInst->rateControl.altrefPictureRate;
+  pRateCtrl->outRateNum       = pEncInst->rateControl.outRateNum;
+  pRateCtrl->outRateDenom     = pEncInst->rateControl.outRateDenom;
 
   VPU_PLG_DBG("VP8EncGetRateCtrl: OK\n");
   return VP8ENC_OK;

@@ -102,31 +102,37 @@ static void rk_vp8_encoder_setconfig(struct rk_vp8_encoder *enc,
                                     struct rk_vepu_runtime_param *param)
 {
   int ret;
-  vp8Instance_s *pEncInst = (vp8Instance_s *)enc->encoder;
   VP8EncRateCtrl rc;
-  pEncInst->encStatus = VP8ENCSTAT_INIT;
+  bool reset = false;
+
   VP8EncGetRateCtrl(enc->encoder, &rc);
-  if (param->bitrate != 0) {
+
+  if (param->framerate_denom != 0 && param->framerate_numer != 0 &&
+      (param->framerate_denom != rc.outRateDenom ||
+       param->framerate_numer != rc.outRateNum)) {
+    rc.outRateNum = param->framerate_numer;
+    rc.outRateDenom = param->framerate_denom;
+    enc->cmdl.outputRateNumer = param->framerate_numer;
+    enc->cmdl.outputRateDenom = param->framerate_denom;
+    reset = true;
+  }
+
+  if (param->bitrate != 0 && param->bitrate != rc.bitPerSecond) {
     rc.bitPerSecond = param->bitrate;
     rc.pictureRc = ENCHW_YES;
     rc.qpHdr = -1;
+    reset = true;
   }
 
-  if (param->framerate_denom != 0 && param->framerate_numer != 0) {
-    pEncInst->rateControl.outRateNum = param->framerate_numer;
-    pEncInst->rateControl.outRateDenom = param->framerate_denom;
-    enc->cmdl.outputRateDenom = param->framerate_denom;
-    enc->cmdl.outputRateNumer = param->framerate_numer;
+  if (reset) {
+    VPU_PLG_INF("Reset bitrate calculation parameters\n");
+    enc->cmdl.streamSize = 0;
+    enc->cmdl.frameCntTotal = 0;
+    ret = VP8EncSetRateCtrl(enc->encoder, &rc);
+    if (ret < 0) {
+      VPU_PLG_ERR("failed to set rate control\n");
+    }
   }
-
-  ret = VP8EncSetRateCtrl(enc->encoder, &rc);
-  if (ret < 0) {
-    VPU_PLG_ERR("failed to set rate control\n");
-  }
-
-  VPU_PLG_INF("Reset bitrate calculation parameters\n");
-  enc->cmdl.streamSize = 0;
-  enc->cmdl.frameCntTotal = 0;
 
   if (param->keyframe_request) {
     enc->cmdl.keyframeRequest = true;
