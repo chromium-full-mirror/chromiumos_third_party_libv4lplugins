@@ -51,9 +51,9 @@ bool_e VP8CheckCfg(const VP8EncConfig* pEncCfg) {
       pEncCfg->width > VP8ENC_MAX_ENC_WIDTH || (pEncCfg->width & 0x3) != 0)
     return ENCHW_NOK;
 
-  /* Encoded image height limits, multiple of 2 */
+  /* Encoded image height limits */
   if (pEncCfg->height < VP8ENC_MIN_ENC_HEIGHT ||
-      pEncCfg->height > VP8ENC_MAX_ENC_HEIGHT || (pEncCfg->height & 0x1) != 0)
+      pEncCfg->height > VP8ENC_MAX_ENC_HEIGHT)
     return ENCHW_NOK;
 
   /* total macroblocks per picture limit */

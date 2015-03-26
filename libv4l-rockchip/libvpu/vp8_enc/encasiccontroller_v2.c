@@ -28,7 +28,6 @@ int32_t VP8_EncAsicMemAlloc_V2(asicData_s* asic, uint32_t width, uint32_t height
   ASSERT(asic != NULL);
   ASSERT(width != 0);
   ASSERT(height != 0);
-  ASSERT((height % 2) == 0);
   ASSERT((width % 4) == 0);
 
   regs = &asic->regs;
