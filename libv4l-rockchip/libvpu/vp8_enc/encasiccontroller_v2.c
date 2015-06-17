@@ -65,9 +65,6 @@ int32_t VP8_EncAsicMemAlloc_V2(asicData_s* asic, uint32_t width, uint32_t height
 
   memset(asic->segmentMap.vir_addr, 0, asic->segmentMap.size);
 
-  /* aligned to 8 bytes. we use unsigned long here for ILP32 and LP64 */
-  asic->frmhdr = (uint8_t*)ALIGN((unsigned long)asic->hdr, 8);
-
   asic->frmHdrBufLen = FRAME_HEADER_SIZE;
 
   return ENCHW_OK;

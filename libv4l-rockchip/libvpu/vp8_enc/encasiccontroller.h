@@ -249,9 +249,8 @@ typedef struct
   VPUMemLinear_t segmentMap;
   uint32_t sizeTblSize;
   uint32_t traceRecon;
-  uint8_t hdr[FRAME_HEADER_SIZE + 8];
+  uint8_t frmhdr[FRAME_HEADER_SIZE];
   uint32_t frmHdrBufLen;
-  uint8_t *frmhdr;
 } asicData_s;
 
 int32_t VP8_EncAsicControllerInit(asicData_s* asic);
