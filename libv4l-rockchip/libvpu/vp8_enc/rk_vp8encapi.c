@@ -571,9 +571,9 @@ void SetDefaultParameter(EncoderParameters* cml) {
   /* left:top:right:bottom macroblock coordinates */
   cml->intraAreaLeft      = 0;
   cml->intraAreaTop       = 0;
-  cml->intraAreaRight     = 3;
-  cml->intraAreaBottom    = 3;
-  cml->intraAreaEnable    = 1;
+  cml->intraAreaRight     = 0;
+  cml->intraAreaBottom    = 0;
+  cml->intraAreaEnable    = 0;
 
   /* left:top:right:bottom macroblock coordinates */
   cml->roi1AreaLeft      = 0;
