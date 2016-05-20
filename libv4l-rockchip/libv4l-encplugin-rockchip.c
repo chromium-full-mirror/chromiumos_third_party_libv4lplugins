@@ -341,8 +341,7 @@ static int ioctl_qbuf_locked(struct encoder_context *ctx, int fd,
 	if (ret)
 		return ret;
 
-	/* TODO: change this to config_store after the header is updated. */
-	buffer->reserved2 = buffer->index + 1;
+	buffer->config_store = buffer->index + 1;
 	ret = SYS_IOCTL(fd, VIDIOC_QBUF, buffer);
 	if (ret == 0)
 		ctx->can_qbuf = false;
@@ -420,10 +419,8 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 	 */
 	for (i = 0; i < ext_ctrls->count; i++) {
 		switch (ext_ctrls->controls[i].id) {
-		case V4L2_CID_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE:
-			if (ext_ctrls->controls[i].value ==
-					V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME)
-				runtime_param_ptr->keyframe_request = true;
+		case V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME:
+			runtime_param_ptr->keyframe_request = true;
 			break;
 		case V4L2_CID_MPEG_VIDEO_BITRATE:
 			runtime_param_ptr->bitrate = ext_ctrls->controls[i].value;
