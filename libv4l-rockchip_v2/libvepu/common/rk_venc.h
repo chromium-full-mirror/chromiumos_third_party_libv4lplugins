@@ -58,6 +58,8 @@ struct rk_venc_ops {
 	void (*apply_param)(struct rk_venc *enc);
 	void (*get_payloads)(struct rk_venc *enc, size_t *num, uint32_t **ids,
 			     void ***payloads, uint32_t **payload_sizes);
+	int (*assemble_bitstream)(struct rk_venc *enc, int fd,
+				  struct v4l2_buffer *buffer);
 };
 
 enum ENC_FORMAT {

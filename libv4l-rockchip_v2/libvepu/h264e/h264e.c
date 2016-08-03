@@ -18,11 +18,13 @@
 #include <malloc.h>
 #include <memory.h>
 #include <stdio.h>
+#include <sys/mman.h>
 
 #include "h264e.h"
 #include "h264e_rate_control.h"
 #include "../common/rk_venc_rate_control.h"
 #include "../rk_vepu_debug.h"
+#include "../streams.h"
 
 const int32_t h264e_qp_tbl[2][11] = {
 	{ 27, 44, 72, 119, 192, 314, 453, 653, 952, 1395, 0x7FFFFFFF },
@@ -112,16 +114,16 @@ static void h264e_init_slice(struct v4l2_plugin_h264_slice_param *slice)
 static void h264e_init_rc(struct rk_venc *ictx)
 {
 	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
-	struct mb_qpctrl *qpCtrl = &ctx->mbrc.qp_ctrl;
+	struct mb_qpctrl *qp_ctrl = &ctx->mbrc.qp_ctrl;
 	struct v4l2_plugin_rate_control *rc = &ictx->rc;
 
-	memset(qpCtrl, 0, sizeof(*qpCtrl));
+	memset(qp_ctrl, 0, sizeof(*qp_ctrl));
 
 	ctx->mbrc.mb_rc_en = true;
-	qpCtrl->check_points = MIN(ctx->sps.pic_height_in_map_units - 1,
+	qp_ctrl->check_points = MIN(ctx->sps.pic_height_in_map_units - 1,
 				  CHECK_POINTS_MAX);
-	qpCtrl->chkptr_distance =
-		MB_PER_PIC(ctx) / (qpCtrl->check_points + 1);
+	qp_ctrl->chkptr_distance =
+		MB_PER_PIC(ctx) / (qp_ctrl->check_points + 1);
 
 	rc->pic_rc_en = true;
 	rc->fps_num = 30;
@@ -143,6 +145,250 @@ static void h264e_init_rc(struct rk_venc *ictx)
 	rk_venc_init_pic_rc(&ctx->venc.rc, h264e_qp_tbl);
 }
 
+static void h264e_assemble_sps(struct rk_venc *ictx, struct stream_s *sps)
+{
+	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+
+	stream_buffer_init(sps);
+	stream_put_bits(sps, 0, 8, "start code");
+	stream_put_bits(sps, 0, 8, "start code");
+	stream_put_bits(sps, 0, 8, "start code");
+	stream_put_bits(sps, 1, 8, "start code");
+
+	stream_put_bits(sps, 0, 1, "forbidden_zero_bit");
+	stream_put_bits(sps, 1, 2, "nal_ref_idc");
+	stream_put_bits(sps, 7, 5, "nal_unit_type");
+
+	stream_put_bits(sps, ctx->sps.profile_idc, 8, "profile_idc");
+	stream_put_bits(sps, ctx->sps.constraint_set0_flag, 1,
+		"constraint_set0_flag");
+	stream_put_bits(sps, ctx->sps.constraint_set1_flag, 1,
+		"constraint_set1_flag");
+	stream_put_bits(sps, ctx->sps.constraint_set2_flag, 1,
+		"constraint_set2_flag");
+	stream_put_bits(sps, ctx->sps.constraint_set3_flag, 1,
+		"constraint_set3_flag");
+
+	stream_put_bits(sps, 0, 4, "reserved_zero_4bits");
+	stream_put_bits(sps, ctx->sps.level_idc, 8, "level_idc");
+
+	stream_write_ue(sps, ctx->sps.seq_parameter_set_id,
+		"seq_parameter_set_id");
+
+	if (ctx->sps.profile_idc >= 100) {
+		stream_write_ue(sps, ctx->sps.chroma_format_idc,
+			"chroma_format_idc");
+		stream_write_ue(sps, ctx->sps.bit_depth_luma_minus8,
+			"bit_depth_luma_minus8");
+		stream_write_ue(sps, ctx->sps.bit_depth_chroma_minus8,
+			"bit_depth_chroma_minus8");
+		stream_put_bits(sps,
+			ctx->sps.qpprime_y_zero_transform_bypass_flag, 1,
+			"qpprime_y_zero_transform_bypass_flag");
+		stream_put_bits(sps, 0, 1, "seq_scaling_matrix_present_flag");
+	}
+
+	stream_write_ue(sps, ctx->sps.log2_max_frame_num_minus4,
+		"log2_max_frame_num_minus4");
+
+	stream_write_ue(sps, ctx->sps.pic_order_cnt_type, "pic_order_cnt_type");
+
+	stream_write_ue(sps, ctx->sps.max_num_ref_frames, "num_ref_frames");
+
+	stream_put_bits(sps, ctx->sps.gaps_in_frame_num_value_allowed_flag, 1,
+		"gaps_in_frame_num_value_allowed_flag");
+
+	stream_write_ue(sps, ctx->sps.pic_width_in_mbs - 1,
+			"pic_width_in_mbs_minus1");
+
+	stream_write_ue(sps, ctx->sps.pic_height_in_map_units - 1,
+			"pic_height_in_map_units_minus1");
+
+	stream_put_bits(sps, ctx->sps.frame_mbs_only_flag, 1,
+		"frame_mbs_only_flag");
+
+	stream_put_bits(sps, ctx->sps.direct_8x8_inference_flag, 1,
+		"direct_8x8_inference_flag");
+
+	stream_put_bits(sps, ctx->sps.frame_cropping_flag, 1,
+		"frame_cropping_flag");
+	if (ctx->sps.frame_cropping_flag) {
+		stream_write_ue(sps, ctx->sps.frame_crop_left_offset,
+			"frame_crop_left_offset");
+		stream_write_ue(sps, ctx->sps.frame_crop_right_offset,
+			"frame_crop_right_offset");
+		stream_write_ue(sps, ctx->sps.frame_crop_top_offset,
+			"frame_crop_top_offset");
+		stream_write_ue(sps, ctx->sps.frame_crop_bottom_offset,
+			"frame_crop_bottom_offset");
+	}
+	stream_put_bits(sps, ctx->sps.vui_parameters_present_flag, 1,
+		"vui_parameters_present_flag");
+	if (ctx->sps.vui_parameters_present_flag) {
+		/* do not set special sar */
+		stream_put_bits(sps, 0, 1, "aspect_ratio_info_present_flag");
+		stream_put_bits(sps, 0, 1, "overscan_info_present_flag");
+		stream_put_bits(sps, 0, 1, "video_signal_type_present_flag");
+		stream_put_bits(sps, 0, 1, "chroma_loc_info_present_flag");
+
+		if (ictx->rc.fps_num != 0) {
+			stream_put_bits(sps, 1, 1, "timing_info_present_flag");
+			stream_put_bits(sps, ictx->rc.fps_denom >> 16, 16,
+				"num_units_in_tick msb");
+			stream_put_bits(sps, ictx->rc.fps_denom & 0xFFFF, 16,
+				"num_units_in_tick lsb");
+			stream_put_bits(sps, (ictx->rc.fps_num * 2) >> 16, 16,
+				"time_scale msb");
+			stream_put_bits(sps, (ictx->rc.fps_num * 2) & 0xFFFF,
+				16, "time_scale lsb");
+			stream_put_bits(sps, 0, 1, "fixed_frame_rate_flag");
+		} else {
+			stream_put_bits(sps, 0, 1, "timing_info_present_flag");
+		}
+
+		stream_put_bits(sps, 0, 1, "nal_hrd_parameters_present_flag");
+		stream_put_bits(sps, 0, 1, "vcl_hrd_parameters_present_flag");
+		stream_put_bits(sps, 0, 1, "pic_struct_present_flag");
+		stream_put_bits(sps, 1, 1, "bit_stream_restriction_flag");
+
+		/* set bit_stream_restriction flag to true */
+		{
+			stream_put_bits(sps, 1, 1,
+				"motion_vectors_over_pic_boundaries");
+
+			stream_write_ue(sps, 0, "max_bytes_per_pic_denom");
+
+			stream_write_ue(sps, 0, "max_bits_per_mb_denom");
+
+			/* restricted by hardware */
+			stream_write_ue(sps, 9, "log2_mv_length_horizontal");
+			stream_write_ue(sps, 7, "log2_mv_length_vertical");
+
+			stream_write_ue(sps, 0, "num_reorder_frames");
+
+			stream_write_ue(sps, ctx->sps.max_num_ref_frames,
+				"max_dec_frame_buffering");
+		}
+
+	}
+	stream_put_bits(sps, 1, 1, "rbsp_stop_one_bit");
+
+	stream_buffer_flush(sps);
+}
+
+static void h264e_assemble_pps(struct rk_venc *ictx, struct stream_s *pps)
+{
+	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+
+	stream_buffer_init(pps);
+
+	stream_put_bits(pps, 0, 8, "start code");
+	stream_put_bits(pps, 0, 8, "start code");
+	stream_put_bits(pps, 0, 8, "start code");
+	stream_put_bits(pps, 1, 8, "start code");
+
+	stream_put_bits(pps, 0, 1, "forbidden_zero_bit");
+	stream_put_bits(pps, 1, 2, "nal_ref_idc");
+	stream_put_bits(pps, 8, 5, "nal_unit_type");
+
+	stream_write_ue(pps, ctx->pps.pic_parameter_set_id,
+		"pic_parameter_set_id");
+	stream_write_ue(pps, ctx->pps.seq_parameter_set_id,
+		"seq_parameter_set_id");
+
+	stream_put_bits(pps, ctx->pps.entropy_coding_mode_flag, 1,
+		"entropy_coding_mode_flag");
+	stream_put_bits(pps, ctx->pps.pic_order_present_flag, 1,
+		"pic_order_present_flag");
+
+	stream_write_ue(pps, ctx->pps.num_slice_groups_minus_1,
+		"num_slice_groups_minus1");
+	stream_write_ue(pps, ctx->pps.num_ref_idx_l0_default_active_minus1,
+		"num_ref_idx_l0_active_minus1");
+	stream_write_ue(pps, ctx->pps.num_ref_idx_l1_default_active_minus1,
+		"num_ref_idx_l1_active_minus1");
+
+	stream_put_bits(pps, ctx->pps.weighted_pred_flag, 1,
+		"weighted_pred_flag");
+	stream_put_bits(pps, ctx->pps.weighted_bipred_idc, 2,
+		"weighted_bipred_idc");
+
+	stream_write_se(pps, ctx->pps.pic_init_qp_minus26,
+		"pic_init_qp_minus26");
+	stream_write_se(pps, ctx->pps.pic_init_qs_minus26,
+		"pic_init_qs_minus26");
+	stream_write_se(pps, ctx->pps.chroma_qp_index_offset,
+		"chroma_qp_index_offset");
+
+	stream_put_bits(pps, ctx->pps.deblocking_filter_control_present_flag, 1,
+		"deblocking_filter_control_present_flag");
+	stream_put_bits(pps, ctx->pps.constrained_intra_pred_flag, 1,
+		"constrained_intra_pred_flag");
+
+	stream_put_bits(pps, ctx->pps.redundant_pic_cnt_present_flag, 1,
+		"redundant_pic_cnt_present_flag");
+
+	if (ctx->pps.transform_8x8_mode_flag) {
+		stream_put_bits(pps, 1, 1, "transform_8x8_mode_flag");
+		stream_put_bits(pps, 0, 1, "pic_scaling_matrix_present_flag");
+		stream_write_se(pps, ctx->pps.chroma_qp_index_offset,
+				"chroma_qp_index_offset");
+	}
+	stream_put_bits(pps, 1, 1, "rbsp_stop_one_bit");
+
+	stream_buffer_flush(pps);
+}
+
+static void h264e_nal_escape_c(struct stream_s *strm)
+{
+	uint8_t *tmp;
+	size_t len = strm->bits_cnt >> 3;
+	int i, j;
+
+	tmp = calloc(1, len);
+	if (tmp == NULL) {
+		VPU_PLG_ERR("allocate escape buffer failed\n");
+		return;
+	}
+	memcpy(tmp, strm->buffer, len);
+
+	i = 2 + 4; /* skip nal prefix bytes */
+	j = 2 + 4;
+	while (i < len) {
+		if (strm->buffer[j - 2] == 0 && strm->buffer[j - 1] == 0 &&
+		    tmp[i] <= 3)
+			strm->buffer[j++] = 3;
+		strm->buffer[j] = tmp[i];
+		i++;
+		j++;
+	}
+	strm->bits_cnt = j << 3;
+
+	free(tmp);
+}
+
+static void h264e_build_stream_header(struct rk_venc *ictx)
+{
+	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+	struct stream_s sps, pps;
+	int sps_size, pps_size;
+
+	h264e_assemble_sps(ictx, &sps);
+	h264e_nal_escape_c(&sps);
+	h264e_assemble_pps(ictx, &pps);
+	h264e_nal_escape_c(&pps);
+
+	sps_size = stream_buffer_bytes(&sps);
+	pps_size = stream_buffer_bytes(&pps);
+
+	ctx->stream_header_size = sps_size + pps_size;
+
+	assert(ctx->stream_header_size <= H264E_MAX_STREAM_HEADER_SIZE);
+
+	memcpy(ctx->stream_header, sps.buffer, sps_size);
+	memcpy(ctx->stream_header + sps_size, pps.buffer, pps_size);
+}
+
 static int h264e_init(struct rk_venc *ictx,
 	struct rk_vepu_init_param *param)
 {
@@ -153,6 +399,8 @@ static int h264e_init(struct rk_venc *ictx,
 	h264e_init_sps(&ctx->sps);
 	h264e_init_pps(&ctx->pps);
 	h264e_init_slice(&ctx->slice);
+
+	ctx->h264_sps_pps_before_idr = param->h264e.h264_sps_pps_before_idr;
 
 	ctx->width = param->width;
 	ctx->height = param->height;
@@ -182,6 +430,8 @@ static int h264e_init(struct rk_venc *ictx,
 		ctx->pps.transform_8x8_mode_flag = 1;
 
 	ctx->rk_ctrl_ids[0] = V4L2_CID_PRIVATE_ROCKCHIP_REG_PARAMS;
+
+	h264e_build_stream_header(ictx);
 
 	return 0;
 }
@@ -335,6 +585,44 @@ static void h264e_get_payloads(struct rk_venc *ictx, size_t *num, uint32_t **ids
 	*payload_sizes = ctx->rk_payload_sizes;
 }
 
+static int h264e_assemble_bitstream(struct rk_venc *ictx, int fd,
+	struct v4l2_buffer *buffer)
+{
+	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+	struct rk3288_h264e_reg_params *hw_info = &ctx->hw_info;
+	void *buf;
+
+	if (hw_info->frame_coding_type != 1 || !ctx->h264_sps_pps_before_idr)
+		return 0;
+
+	if (buffer->memory != V4L2_MEMORY_MMAP || V4L2_TYPE_IS_OUTPUT(buffer->type))
+		return -1;
+
+	if (buffer->m.planes[0].bytesused + ctx->stream_header_size >
+	    buffer->m.planes[0].length)
+		return -1;
+
+	buffer->length = 1;
+
+	buf = mmap(NULL, buffer->m.planes[0].length,
+			PROT_READ | PROT_WRITE,
+			MAP_SHARED, fd,
+			buffer->m.planes[0].m.mem_offset);
+
+	if (buf == MAP_FAILED)
+		return -1;
+
+	memmove((uint8_t *)buf + ctx->stream_header_size, buf,
+		buffer->m.planes[0].bytesused);
+	memcpy(buf, ctx->stream_header, ctx->stream_header_size);
+	buffer->m.planes[0].bytesused += ctx->stream_header_size;
+
+	munmap(buf, buffer->m.planes[0].length);
+
+	return 0;
+}
+
+
 static struct rk_venc_ops h264_enc_ops = {
 	.init = h264e_init,
 	.before_encode = h264e_begin_picture,
@@ -343,6 +631,7 @@ static struct rk_venc_ops h264_enc_ops = {
 	.update_priv = h264e_update_priv,
 	.apply_param = h264e_apply_param,
 	.get_payloads = h264e_get_payloads,
+	.assemble_bitstream = h264e_assemble_bitstream,
 };
 
 struct rk_venc* rk_h264_encoder_alloc_ctx(void)

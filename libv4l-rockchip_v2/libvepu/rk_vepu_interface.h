@@ -24,6 +24,10 @@
 #define V4L2_CID_PRIVATE_ROCKCHIP_HW_PARAMS	(V4L2_CID_CUSTOM_BASE + 2)
 #define V4L2_CID_PRIVATE_ROCKCHIP_GET_PARAMS	(V4L2_CID_CUSTOM_BASE + 3)
 
+#ifndef V4L2_CID_MPEG_VIDEO_H264_SPS_PPS_BEFORE_IDR
+#define V4L2_CID_MPEG_VIDEO_H264_SPS_PPS_BEFORE_IDR (V4L2_CID_MPEG_BASE+388)
+#endif
+
 /* The maximum number of controls returned by rk_vepu_get_config(). */
 #define MAX_NUM_GET_CONFIG_CTRLS 5
 
@@ -32,6 +36,11 @@ struct rk_vepu_init_param {
 	uint32_t height; /* video height */
 	uint32_t input_format; /* V4L2 fourcc pixel format */
 	uint32_t output_format; /* V4L2 fourcc pixel format */
+	union {
+		struct {
+			bool h264_sps_pps_before_idr;
+		} h264e;
+	};
 };
 
 struct rk_vepu_runtime_param {
@@ -108,6 +117,8 @@ int rk_vepu_update_config(void *enc, void *config, uint32_t config_size,
  */
 int rk_vepu_update_param(void *enc,
 			 struct rk_vepu_runtime_param *runtime_param);
+
+int rk_vepu_assemble_bitstream(void *enc, int fd, struct v4l2_buffer *buffer);
 
 #endif  // LIBVPU_RK_VEPU_INTERFACE_H_
 

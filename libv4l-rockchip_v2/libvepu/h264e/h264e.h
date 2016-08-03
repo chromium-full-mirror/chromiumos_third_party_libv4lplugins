@@ -28,6 +28,8 @@
 #include "../common/rk_venc.h"
 
 #define H264E_NUM_CTRLS	1
+#define H264E_MAX_STREAM_HEADER_SIZE 256
+
 struct rk_h264_encoder {
 	struct rk_venc venc;
 
@@ -38,6 +40,10 @@ struct rk_h264_encoder {
 	struct v4l2_plugin_h264_feedback feedback;
 
 	struct h264_mb_rate_control mbrc;
+
+	char stream_header[H264E_MAX_STREAM_HEADER_SIZE];
+	int stream_header_size;
+	int h264_sps_pps_before_idr;
 
 	int width;
 	int height;
