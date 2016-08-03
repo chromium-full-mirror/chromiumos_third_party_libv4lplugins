@@ -367,6 +367,8 @@ static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 	if (ret)
 		return ret;
 
+	rk_vepu_assemble_bitstream(ctx->enc, fd, buffer);
+
 	assert(!ctx->can_qbuf);
 
 	/* Get the encoder configuration and update the library. */
@@ -426,6 +428,9 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 		case V4L2_CID_MPEG_VIDEO_BITRATE:
 			runtime_param_ptr->bitrate = ext_ctrls->controls[i].value;
 			break;
+		case V4L2_CID_MPEG_VIDEO_H264_SPS_PPS_BEFORE_IDR:
+			ctx->init_param.h264e.h264_sps_pps_before_idr =
+				ext_ctrls->controls[i].value;
 		default:
 			break;
 		}
@@ -575,6 +580,8 @@ static int initialize_libvpu(struct encoder_context *ctx, int fd)
 		return ret;
 	init_param.width = crop.c.width;
 	init_param.height = crop.c.height;
+
+	init_param.h264e = ctx->init_param.h264e;
 
 	/*
 	 * If the encoder library has initialized and parameters have not

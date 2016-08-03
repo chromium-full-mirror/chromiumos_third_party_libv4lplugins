@@ -8,6 +8,7 @@ endif
 
 libv4l_encplugin_la_SOURCES = \
 	libv4l-encplugin-rockchip.c \
+	libvepu/streams.c \
 	libvepu/rk_vepu.c \
 	libvepu/rk_vepu_debug.c \
 	libvepu/common/rk_venc_rate_control.c \

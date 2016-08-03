@@ -119,3 +119,13 @@ int rk_vepu_update_param(void *enc,
 	ienc->ops->apply_param(ienc);
 	return 0;
 }
+
+int rk_vepu_assemble_bitstream(void *enc, int fd, struct v4l2_buffer *buffer) {
+  struct rk_venc *ienc = (struct rk_venc*)enc;
+
+  assert(enc != NULL && buffer != NULL);
+  if (ienc->ops->assemble_bitstream)
+    return ienc->ops->assemble_bitstream(ienc, fd, buffer);
+
+  return 0;
+}
