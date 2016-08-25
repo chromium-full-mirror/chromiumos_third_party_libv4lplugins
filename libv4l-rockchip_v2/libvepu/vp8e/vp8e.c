@@ -23,6 +23,35 @@
 #include "vp8e_bitstream.h"
 #include "../rk_vepu_debug.h"
 
+const int32_t vp8e_qp_tbl[2][11] = {
+	{ 47, 57, 73, 93, 122, 155, 214, 294, 373, 506, 0x7FFFFFFF },
+	{ 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20}};
+
+static void vp8e_init_rc(struct rk_venc *ictx)
+{
+	struct rk_vp8_encoder *ctx = (struct rk_vp8_encoder *)ictx;
+	struct v4l2_plugin_rate_control *rc = &ictx->rc;
+
+	rc->pic_rc_en = true;
+	rc->fps_num = 30;
+	rc->fps_denom = 1;
+	rc->vb.bit_rate = 1000000;
+	rc->vb.actual_bits = 0;
+	rc->vb.time_scale = rc->fps_num;
+	rc->vb.virt_bits_cnt = 0;
+	rc->vb.bucket_fullness = 0;
+	rc->vb.pic_time_inc = 0;
+	rc->gop_len = 150;
+	rc->qp_min = 30;
+	rc->qp_max = 127;
+	rc->mb_per_pic = MB_COUNT(ctx->width) * MB_COUNT(ctx->height);
+	rc->intra_qp_delta = -3;
+	rc->qp = -1;
+	rc->initiated = false;
+
+	rk_venc_init_pic_rc(&ctx->venc.rc, vp8e_qp_tbl);
+}
+
 static int vp8e_init(struct rk_venc *ictx,
 	struct rk_vepu_init_param *param)
 {
@@ -51,6 +80,8 @@ static int vp8e_init(struct rk_venc *ictx,
 	ctx->hw_info.filter_sharpness = 0;
 	ctx->hw_info.filter_level = 26; /* 0 ~ 63 */
 
+	vp8e_init_rc(ictx);
+
 	ctx->priv_data = (struct vp8_hw_privdata *)calloc(1, sizeof(*ctx->priv_data));
 	if (ctx->priv_data == NULL) {
 		VPU_PLG_ERR("allocate private data buffer failed\n");
@@ -75,6 +106,8 @@ static int vp8e_begin_picture(struct rk_venc *ictx)
 {
 	struct rk_vp8_encoder *ctx = (struct rk_vp8_encoder *)ictx;
 	struct rk3399_vp8e_reg_params *hw_info = &ctx->hw_info;
+	int time_inc = 1;
+	enum FRAME_TYPE frmtype = INTER_FRAME;
 
 	VPU_PLG_ENTER();
 
@@ -89,9 +122,13 @@ static int vp8e_begin_picture(struct rk_venc *ictx)
 	if (ctx->frm_in_gop == 0) {
 		hw_info->is_intra = 1;
 		hw_info->filter_level = 48;
+		time_inc = 0;
+		frmtype = INTRA_FRAME;
 	}
 
-	hw_info->qp = 80;
+	rk_venc_before_pic_rc(&ctx->venc.rc, time_inc, frmtype);
+
+	hw_info->qp = ictx->rc.qp;
 
 	prepare_prob(&ctx->probs);
 
@@ -125,10 +162,12 @@ static int vp8e_end_picture(struct rk_venc *ictx,
 
 	VPU_PLG_ENTER();
 
+	rk_venc_after_pic_rc(&ctx->venc.rc, outputStreamSize);
+
 	ctx->last_frm_intra = ctx->hw_info.is_intra;
 
 	ctx->frm_in_gop++;
-	ctx->frm_in_gop %= 150;
+	ctx->frm_in_gop %= ictx->rc.gop_len;
 
 	ctx->frame_cnt++;
 
@@ -152,10 +191,33 @@ static int vp8e_update_priv(struct rk_venc *ictx, void *config, uint32_t cfglen)
 static void vp8e_apply_param(struct rk_venc *ictx)
 {
 	struct rk_vp8_encoder *ctx = (struct rk_vp8_encoder *)ictx;
+	struct rk_vepu_runtime_param *param = &ictx->runtime_param;
+	bool reinit = false;
 
 	assert(ctx);
 
-	/* todo, apply parameters to rate control */
+	if (param->bitrate != 0) {
+		ctx->venc.rc.vb.bit_rate = param->bitrate;
+		reinit = true;
+	}
+
+	if (param->framerate_numer != 0 && param->framerate_denom != 0) {
+		ctx->venc.rc.fps_num = param->framerate_numer;
+		ctx->venc.rc.fps_denom = param->framerate_denom;
+		ictx->rc.vb.time_scale = param->framerate_numer;
+
+		reinit = true;
+	}
+
+	if (reinit) {
+		if (!ictx->rc.initiated) {
+			ictx->rc.qp = -1;
+			rk_venc_init_pic_rc(&ictx->rc, vp8e_qp_tbl);
+			ictx->rc.initiated = true;
+		} else {
+			rk_venc_recalc_parameter(&ictx->rc);
+		}
+	}
 }
 
 static void vp8e_get_payloads(struct rk_venc *ictx, size_t *num, uint32_t **ids,

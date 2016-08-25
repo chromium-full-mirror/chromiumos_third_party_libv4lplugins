@@ -23,6 +23,8 @@
 
 #include "../rk_vepu_interface.h"
 
+#include "rk_venc_rate_control.h"
+
 typedef uint8_t		u8;
 typedef uint16_t	u16;
 typedef uint32_t	u32;
@@ -67,6 +69,7 @@ struct rk_venc {
 	struct rk_venc_ops *ops;
 	struct rk_vepu_runtime_param runtime_param;
 
+	struct v4l2_plugin_rate_control rc;
 	enum ENC_FORMAT	fmt;
 };
 

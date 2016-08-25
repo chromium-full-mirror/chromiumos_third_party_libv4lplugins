@@ -20,6 +20,8 @@
 #include <stdio.h>
 
 #include "h264e.h"
+#include "h264e_rate_control.h"
+#include "../common/rk_venc_rate_control.h"
 #include "../rk_vepu_debug.h"
 
 const int32_t h264e_qp_tbl[2][11] = {
@@ -107,6 +109,40 @@ static void h264e_init_slice(struct v4l2_plugin_h264_slice_param *slice)
 	slice->slice_beta_offset_div2 = 0;
 }
 
+static void h264e_init_rc(struct rk_venc *ictx)
+{
+	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+	struct mb_qpctrl *qpCtrl = &ctx->mbrc.qp_ctrl;
+	struct v4l2_plugin_rate_control *rc = &ictx->rc;
+
+	memset(qpCtrl, 0, sizeof(*qpCtrl));
+
+	ctx->mbrc.mb_rc_en = true;
+	qpCtrl->check_points = MIN(ctx->sps.pic_height_in_map_units - 1,
+				  CHECK_POINTS_MAX);
+	qpCtrl->chkptr_distance =
+		MB_PER_PIC(ctx) / (qpCtrl->check_points + 1);
+
+	rc->pic_rc_en = true;
+	rc->fps_num = 30;
+	rc->fps_denom = 1;
+	rc->vb.bit_rate = 1000000;
+	rc->vb.actual_bits = 0;
+	rc->vb.time_scale = rc->fps_num;
+	rc->vb.virt_bits_cnt = 0;
+	rc->vb.bucket_fullness = 0;
+	rc->vb.pic_time_inc = 0;
+	rc->gop_len = 150;
+	rc->qp_min = 10;
+	rc->qp_max = 51;
+	rc->mb_per_pic = MB_PER_PIC(ctx);
+	rc->intra_qp_delta = -3;
+	rc->qp = -1;
+	rc->initiated = false;
+
+	rk_venc_init_pic_rc(&ctx->venc.rc, h264e_qp_tbl);
+}
+
 static int h264e_init(struct rk_venc *ictx,
 	struct rk_vepu_init_param *param)
 {
@@ -135,6 +171,8 @@ static int h264e_init(struct rk_venc *ictx,
 			ctx->sps.pic_height_in_map_units * 16 - ctx->height;
 	}
 
+	h264e_init_rc(ictx);
+
 	if (ctx->sps.level_idc >= H264ENC_LEVEL_3_1)
 		ctx->h264_inter4x4_disabled = 1;
 	else
@@ -156,6 +194,9 @@ static void h264e_deinit(struct rk_venc *ictx)
 static int h264e_begin_picture(struct rk_venc *ictx)
 {
 	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+	int i;
+	enum FRAME_TYPE frmtype = INTER_FRAME;
+	int timeInc = 1;
 	struct rk3288_h264e_reg_params *hw_info = &ctx->hw_info;
 
 	if (ictx->runtime_param.keyframe_request) {
@@ -170,7 +211,12 @@ static int h264e_begin_picture(struct rk_venc *ictx)
 		ctx->slice.idr_pic_id %= 16;
 		ctx->slice.frame_num = 0;
 		hw_info->frame_coding_type = FRAME_CODING_TYPE_INTRA;
+		frmtype = INTRA_FRAME;
+		timeInc = 0;
 	}
+
+	rk_venc_before_pic_rc(&ctx->venc.rc, timeInc, frmtype);
+	h264e_before_mb_rate_control(&ctx->mbrc);
 
 	hw_info->pic_init_qp = ctx->pps.pic_init_qp_minus26 + 26;
 	hw_info->transform8x8_mode = ctx->pps.transform_8x8_mode_flag;
@@ -187,13 +233,22 @@ static int h264e_begin_picture(struct rk_venc *ictx)
 	hw_info->slice_size_mb_rows = ctx->slice_size_mb_rows;
 	hw_info->cabac_init_idc = ctx->slice.cabac_init_idc;
 
-	hw_info->qp = 30;
+	hw_info->qp = ctx->venc.rc.qp;
 
 	hw_info->mad_qp_delta = 0;
 	hw_info->mad_threshold = 0;
-	hw_info->qp_min = 10;
-	hw_info->qp_max = 51;
-	hw_info->cp_distance_mbs = 0;
+	hw_info->qp_min = ctx->venc.rc.qp_min;
+	hw_info->qp_max = ctx->venc.rc.qp_max;
+	hw_info->cp_distance_mbs = ctx->mbrc.qp_ctrl.chkptr_distance;
+
+	for (i = 0; i < ctx->mbrc.qp_ctrl.check_points; i++) {
+		hw_info->cp_target[i] = ctx->mbrc.qp_ctrl.word_cnt_target[i];
+	}
+
+	for (i = 0; i < CTRL_LEVELS; i++) {
+		hw_info->target_error[i] = ctx->mbrc.qp_ctrl.word_error[i];
+		hw_info->delta_qp[i] = ctx->mbrc.qp_ctrl.qp_delta[i];
+	}
 
 	hw_info->h264_inter4x4_disabled = ctx->h264_inter4x4_disabled;
 
@@ -207,9 +262,17 @@ static int h264e_end_picture(struct rk_venc *ictx,
 	 uint32_t outputStreamSize)
 {
 	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+	struct v4l2_plugin_h264_feedback *feedback = &ctx->feedback;
+	int i;
+
+	for (i = 0; i < CHECK_POINTS_MAX; i++)
+		ctx->mbrc.qp_ctrl.word_cnt_prev[i] = feedback->cp[i];
+	h264e_after_mb_rate_control(&ctx->mbrc, outputStreamSize,
+				 feedback->rlcCount, feedback->qpSum);
+	rk_venc_after_pic_rc(&ctx->venc.rc, outputStreamSize);
 
 	ctx->frm_in_gop++;
-	ctx->frm_in_gop %= 150;
+	ctx->frm_in_gop %= ctx->venc.rc.gop_len;
 
 	ctx->slice.frame_num++;
 	ctx->slice.frame_num %=
@@ -233,10 +296,32 @@ static int h264e_update_priv(struct rk_venc *ictx, void *config, uint32_t cfglen
 static void h264e_apply_param(struct rk_venc *ictx)
 {
 	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
+	struct rk_vepu_runtime_param *param = &ictx->runtime_param;
+	bool reinit = false;
 
 	assert(ctx);
 
-	/* todo, apply parameters to rate control */
+	if (param->bitrate != 0) {
+		ctx->venc.rc.vb.bit_rate = param->bitrate;
+		reinit = true;
+	}
+
+	if (param->framerate_numer != 0 && param->framerate_denom != 0) {
+		ctx->venc.rc.fps_num = param->framerate_numer;
+		ctx->venc.rc.fps_denom = param->framerate_denom;
+		ictx->rc.vb.time_scale = param->framerate_numer;
+		reinit = true;
+	}
+
+	if (reinit) {
+		if (!ictx->rc.initiated) {
+			ictx->rc.qp = -1;
+			rk_venc_init_pic_rc(&ictx->rc, h264e_qp_tbl);
+			ictx->rc.initiated = true;
+		} else {
+			rk_venc_recalc_parameter(&ictx->rc);
+		}
+	}
 }
 
 static void h264e_get_payloads(struct rk_venc *ictx, size_t *num, uint32_t **ids,

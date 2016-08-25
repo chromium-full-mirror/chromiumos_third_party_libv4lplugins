@@ -23,6 +23,8 @@
 #include "../rk_vepu_interface.h"
 
 #include "h264e_common.h"
+#include "h264e_rate_control.h"
+
 #include "../common/rk_venc.h"
 
 #define H264E_NUM_CTRLS	1
@@ -34,6 +36,8 @@ struct rk_h264_encoder {
 	struct v4l2_plugin_h264_slice_param slice;
 	struct rk3288_h264e_reg_params hw_info;
 	struct v4l2_plugin_h264_feedback feedback;
+
+	struct h264_mb_rate_control mbrc;
 
 	int width;
 	int height;
