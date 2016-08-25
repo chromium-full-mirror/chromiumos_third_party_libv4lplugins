@@ -10,7 +10,9 @@ libv4l_encplugin_la_SOURCES = \
 	libv4l-encplugin-rockchip.c \
 	libvepu/rk_vepu.c \
 	libvepu/rk_vepu_debug.c \
+	libvepu/common/rk_venc_rate_control.c \
 	libvepu/h264e/h264e.c \
+	libvepu/h264e/h264e_rate_control.c \
 	libvepu/vp8e/vp8e.c \
 	libvepu/vp8e/boolhuff.c \
 	libvepu/vp8e/vp8e_bitstream.c \
