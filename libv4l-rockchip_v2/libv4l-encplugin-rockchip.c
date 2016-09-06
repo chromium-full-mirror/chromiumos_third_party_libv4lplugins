@@ -491,7 +491,7 @@ bool is_rockchip_encoder(int fd) {
 	int ret = SYS_IOCTL(fd, VIDIOC_QUERYCAP, &cap);
 	if (ret)
 		return false;
-	VLOG_FD(0, "driver name return %s\n", (char*)cap.card);
+	VLOG_FD(1, "driver name return %s\n", (char*)cap.card);
 	return strstr((const char *)cap.card, "-enc") != NULL;
 }
 
