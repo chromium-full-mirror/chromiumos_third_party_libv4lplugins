@@ -30,7 +30,8 @@
 #define SYS_IOCTL(fd, cmd, arg) ({ 						\
 	int ret = syscall(SYS_ioctl, (int)(fd), (unsigned long)(cmd),		\
 			(void *)(arg));						\
-	if ((ret && errno != EAGAIN) || g_log_level >= 2)			\
+	if (g_log_level >= 2 || (ret && errno != EAGAIN &&			\
+                                 (cmd != VIDIOC_ENUM_FMT || errno != EINVAL))) \
 		fprintf(stderr, "SYS_ioctl: %s(%lu): fd=%d, ret=%d, errno=%d\n",\
 			v4l_cmd2str(cmd), _IOC_NR((unsigned long)cmd), fd, ret,	\
 			errno);							\
