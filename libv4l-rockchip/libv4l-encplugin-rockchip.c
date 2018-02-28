@@ -98,6 +98,9 @@ struct pending_buffer_queue {
  *			rk_vepu_update_config().
  * @get_param_payload_size:	The size of get_param_payload.
  * @v4l2_ctrls:	v4l2 controls for VIDIOC_S_EXT_CTRLS.
+ * @flushing:	Indicate the encoder is flushing frame.
+ * @eos_buffer:	The last buffer to be flushed. Reset to NULL after the buffer
+ *		is enqueued to the driver.
  */
 struct encoder_context {
 	void *enc;
@@ -111,6 +114,8 @@ struct encoder_context {
 	void *get_param_payload;
 	size_t get_param_payload_size;
 	struct v4l2_ext_control v4l2_ctrls[MAX_NUM_GET_CONFIG_CTRLS];
+	bool flushing;
+	struct pending_buffer *eos_buffer;
 };
 
 static void *plugin_init(int fd);
@@ -133,6 +138,8 @@ static int ioctl_s_parm_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_streamparm *parms);
 static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_requestbuffers *reqbufs);
+static int ioctl_encoder_cmd_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_encoder_cmd *argp);
 
 /* Helper functions to manipulate the pending buffer queue. */
 
@@ -266,6 +273,10 @@ static int plugin_ioctl(void *dev_ops_priv, int fd,
 		ret = ioctl_reqbufs_locked(ctx, fd, arg);
 		break;
 
+	case VIDIOC_ENCODER_CMD:
+		ret = ioctl_encoder_cmd_locked(ctx, fd, arg);
+		break;
+
 	default:
 		ret = SYS_IOCTL(fd, cmd, arg);
 		break;
@@ -367,30 +378,41 @@ static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 	if (ret)
 		return ret;
 
-	assert(!ctx->can_qbuf);
-
-	/* Get the encoder configuration and update the library. */
-	memset(ctx->get_param_payload, 0, ctx->get_param_payload_size);
-	memset(&v4l2_ctrl, 0, sizeof(v4l2_ctrl));
-	v4l2_ctrl.id = V4L2_CID_PRIVATE_RK3288_GET_PARAMS;
-	v4l2_ctrl.size = ctx->get_param_payload_size;
-	v4l2_ctrl.ptr = ctx->get_param_payload;
-	memset(&ext_ctrls, 0, sizeof(ext_ctrls));
-	/* TODO: change this to config_store after the header is updated. */
-	ext_ctrls.ctrl_class = 0;
-	ext_ctrls.count = 1;
-	ext_ctrls.controls = &v4l2_ctrl;
-	ret = SYS_IOCTL(fd, VIDIOC_G_EXT_CTRLS, &ext_ctrls);
-	if (ret)
-		return ret;
+	/* Get the encoder configuration and update the library.
+	 * Because we dequeue a null frame to indicate flush is finished, do not
+	 * update the config with this frame. */
 	bytesused = V4L2_TYPE_IS_MULTIPLANAR(buffer->type) ?
 		buffer->m.planes[0].bytesused : buffer->bytesused;
+	if (bytesused) {
+		memset(ctx->get_param_payload, 0, ctx->get_param_payload_size);
+		memset(&v4l2_ctrl, 0, sizeof(v4l2_ctrl));
+		v4l2_ctrl.id = V4L2_CID_PRIVATE_RK3288_GET_PARAMS;
+		v4l2_ctrl.size = ctx->get_param_payload_size;
+		v4l2_ctrl.ptr = ctx->get_param_payload;
+		memset(&ext_ctrls, 0, sizeof(ext_ctrls));
+		/* TODO: change this to config_store after the header is
+		 * updated. */
+		ext_ctrls.ctrl_class = 0;
+		ext_ctrls.count = 1;
+		ext_ctrls.controls = &v4l2_ctrl;
+		ret = SYS_IOCTL(fd, VIDIOC_G_EXT_CTRLS, &ext_ctrls);
+		if (ret)
+			return ret;
 
-	if (rk_vepu_update_config(ctx->enc, v4l2_ctrl.ptr, v4l2_ctrl.size,
-			bytesused)) {
-		VLOG_FD(0, "rk_vepu_update_config failed.");
-		return -EIO;
+		if (rk_vepu_update_config(ctx->enc, v4l2_ctrl.ptr,
+				v4l2_ctrl.size, bytesused)) {
+			VLOG_FD(0, "rk_vepu_update_config failed.");
+			return -EIO;
+		}
 	}
+
+	/* When flushing buffer, we don't queue any new buffer.
+	 * So we ignore checking can_qbuf and trying to qbuf new buffer. */
+	assert(ctx->flushing || !ctx->can_qbuf);
+	if (buffer->flags & V4L2_BUF_FLAG_LAST)
+		ctx->flushing = false;
+	if (ctx->flushing)
+		return 0;
 	ctx->can_qbuf = true;
 	return qbuf_if_pending_buffer_exists_locked(ctx, fd);
 }
@@ -480,6 +502,26 @@ static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 	return 0;
 }
 
+static int ioctl_encoder_cmd_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_encoder_cmd *argp)
+{
+	if (argp->cmd == V4L2_ENC_CMD_STOP) {
+		if (ctx->flushing) {
+			VLOG_FD(0, "previous stop command is not handled yet.");
+			return -EINVAL;
+		}
+		ctx->flushing = true;
+		/* If there is any pending buffer, then send the stop command
+		 * after we enqueue the last buffer. Otherwise, we just send
+		 * the command to the kernel instantly. */
+		if (!queue_empty(&ctx->pending_buffers)) {
+			ctx->eos_buffer = queue_back(&ctx->pending_buffers);
+			return 0;
+		}
+	}
+	return SYS_IOCTL(fd, VIDIOC_ENCODER_CMD, argp);
+}
+
 bool is_rockchip_encoder(int fd) {
 	struct v4l2_capability cap;
 	memset(&cap, 0, sizeof(cap));
@@ -540,6 +582,14 @@ static int qbuf_if_pending_buffer_exists_locked(struct encoder_context *ctx,
 		if (ret)
 			return ret;
 		queue_pop_front(&ctx->pending_buffers);
+		/* QBUF the last buffer to be flushed, send stop command. */
+		if (element == ctx->eos_buffer) {
+			ctx->eos_buffer = NULL;
+			struct v4l2_encoder_cmd argp = {
+				.cmd = V4L2_ENC_CMD_STOP,
+			};
+			return SYS_IOCTL(fd, VIDIOC_ENCODER_CMD, &argp);
+		}
 	}
 	return 0;
 }
@@ -706,6 +756,8 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 		return "VIDIOC_S_EXT_CTRLS";
 	case VIDIOC_QUERYBUF:
 		return "VIDIOC_QUERYBUF";
+	case VIDIOC_ENCODER_CMD:
+		return "VIDIOC_ENCODER_CMD";
 	default:
 		return "UNKNOWN";
 	}
