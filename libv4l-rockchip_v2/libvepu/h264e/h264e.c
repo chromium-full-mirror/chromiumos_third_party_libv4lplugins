@@ -412,11 +412,14 @@ static int h264e_init(struct rk_venc *ictx,
 
 	if (ctx->width != ctx->sps.pic_width_in_mbs * 16 ||
 	    ctx->height != ctx->sps.pic_height_in_map_units * 16) {
+		assert(ctx->sps.frame_mbs_only_flag == 1);
+		assert(ctx->width % 2 == 0 && ctx->height % 2 == 0);
 		ctx->sps.frame_cropping_flag = 1;
 		ctx->sps.frame_crop_right_offset =
-			ctx->sps.pic_width_in_mbs * 16 - ctx->width;
+			(ctx->sps.pic_width_in_mbs * 16 - ctx->width) >> 1;
 		ctx->sps.frame_crop_bottom_offset =
-			ctx->sps.pic_height_in_map_units * 16 - ctx->height;
+			(ctx->sps.pic_height_in_map_units * 16 - ctx->height)
+			>> 1;
 	}
 
 	h264e_init_rc(ictx);
