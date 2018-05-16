@@ -47,6 +47,7 @@
 #define DEFAULT_FRAME_RATE 30
 #define DEFAULT_BITRATE 1000000
 #define PENDING_BUFFER_QUEUE_SIZE VIDEO_MAX_FRAME
+#define round_down(x, y) ((x) - ((x) % (y)))
 
 /*
  * struct pending_buffer - A v4l2 buffer pending for QBUF.
@@ -100,6 +101,17 @@ struct pending_buffer_queue {
  * @flushing:	Indicate the encoder is flushing frame.
  * @eos_buffer:	The last buffer to be flushed. Reset to NULL after the buffer
  *		is enqueued to the driver.
+ * @output_format:	The compressed format of the encoded video.
+ * @frame_width:	The width of the input frame.
+ * @frame_height:	The height of the input frame.
+ * @crop_width:	The width of the cropped rectangle. The value is set when
+ * 		VIDIOC_S_FMT or VIDIOC_S_CROP for OUTPUT queue is called
+ * 		successfully, and is used as the width of encoded video.
+ * 		Note: we store the original value passed from ioctl, instead of
+ * 		the value adjusted by the driver. Also, the value should be
+ * 		smaller or equal than frame_width.
+ * @crop_height:	The height of the croped rectangle. Other description is
+ *			the same as crop_width.
  */
 struct encoder_context {
 	void *enc;
@@ -115,6 +127,11 @@ struct encoder_context {
 	struct v4l2_ext_control v4l2_ctrls[MAX_NUM_GET_CONFIG_CTRLS];
 	bool flushing;
 	struct pending_buffer *eos_buffer;
+	uint32_t output_format;
+	uint32_t frame_width;
+	uint32_t frame_height;
+	uint32_t crop_width;
+	uint32_t crop_height;
 };
 
 static void *plugin_init(int fd);
@@ -135,6 +152,12 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_ext_controls *ext_ctrls);
 static int ioctl_s_parm_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_streamparm *parms);
+static int ioctl_s_fmt_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_format *format);
+static int ioctl_s_crop_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_crop *crop);
+static int ioctl_g_crop_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_crop *crop);
 static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_requestbuffers *reqbufs);
 static int ioctl_encoder_cmd_locked(struct encoder_context *ctx, int fd,
@@ -268,6 +291,18 @@ static int plugin_ioctl(void *dev_ops_priv, int fd,
 
 	case VIDIOC_S_PARM:
 		ret = ioctl_s_parm_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_S_FMT:
+		ret = ioctl_s_fmt_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_S_CROP:
+		ret = ioctl_s_crop_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_G_CROP:
+		ret = ioctl_g_crop_locked(ctx, fd, arg);
 		break;
 
 	case VIDIOC_REQBUFS:
@@ -498,6 +533,76 @@ static int ioctl_s_parm_locked(struct encoder_context *ctx, int fd,
 	return SYS_IOCTL(fd, VIDIOC_S_PARM, parms);
 }
 
+static int ioctl_s_fmt_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_format *format)
+{
+	uint32_t width = format->fmt.pix_mp.width;
+	uint32_t height = format->fmt.pix_mp.height;
+	int ret = SYS_IOCTL(fd, VIDIOC_S_FMT, format);
+	if (ret)
+		return ret;
+	if (!V4L2_TYPE_IS_OUTPUT(format->type)) {
+		ctx->output_format = format->fmt.pix_mp.pixelformat;
+		return 0;
+	}
+
+	/* The width and height of H264 video should be even. */
+	if (ctx->output_format == V4L2_PIX_FMT_H264) {
+		width = round_down(width, 2);
+		height = round_down(height, 2);
+	}
+	ctx->frame_width = width;
+	ctx->frame_height = height;
+	ctx->crop_width = width;
+	ctx->crop_height = height;
+	return 0;
+}
+
+static int ioctl_s_crop_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_crop *crop)
+{
+	/*
+	 * We do not support offsets, and the crop size should not be
+	 * bigger than the frame size. In this case, we reset the crop
+	 * size to full frame size.
+	 */
+	if (crop->c.left != 0 || crop->c.top != 0 ||
+			crop->c.width > ctx->frame_width ||
+			crop->c.height > ctx->frame_height) {
+		crop->c.left = 0;
+		crop->c.top = 0;
+		crop->c.width = ctx->frame_width;
+		crop->c.height = ctx->frame_height;
+	}
+
+	uint32_t width = crop->c.width;
+	uint32_t height = crop->c.height;
+	int ret = SYS_IOCTL(fd, VIDIOC_S_CROP, crop);
+	if (ret || !V4L2_TYPE_IS_OUTPUT(crop->type))
+		return ret;
+
+	/* The width and height of H264 video should be even. */
+	if (ctx->output_format == V4L2_PIX_FMT_H264) {
+		width = round_down(width, 2);
+		height = round_down(height, 2);
+	}
+	ctx->crop_width = width;
+	ctx->crop_height = height;
+	return 0;
+}
+
+static int ioctl_g_crop_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_crop *crop)
+{
+	int ret = SYS_IOCTL(fd, VIDIOC_G_CROP, crop);
+	if (ret || !V4L2_TYPE_IS_OUTPUT(crop->type))
+		return ret;
+
+	crop->c.width = ctx->crop_width;
+	crop->c.height = ctx->crop_height;
+	return 0;
+}
+
 static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 		struct v4l2_requestbuffers *reqbufs)
 {
@@ -623,14 +728,8 @@ static int initialize_libvpu(struct encoder_context *ctx, int fd)
 	init_param.output_format = format.fmt.pix_mp.pixelformat;
 
 	/* Get the cropped size. */
-	struct v4l2_crop crop;
-	memset(&crop, 0, sizeof(crop));
-	crop.type = ctx->output_streamon_type;
-	ret = SYS_IOCTL(fd, VIDIOC_G_CROP, &crop);
-	if (ret)
-		return ret;
-	init_param.width = crop.c.width;
-	init_param.height = crop.c.height;
+	init_param.width = ctx->crop_width;
+	init_param.height = ctx->crop_height;
 
 	init_param.h264e = ctx->init_param.h264e;
 
