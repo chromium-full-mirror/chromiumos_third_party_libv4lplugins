@@ -158,8 +158,8 @@ static struct pending_buffer *queue_back(struct pending_buffer_queue *queue);
 bool is_rockchip_encoder(int fd);
 /* Set encoder configuration to the driver. */
 int set_encoder_config_locked(struct encoder_context *ctx, int fd,
-	uint32_t buffer_index, size_t num_ctrls, uint32_t ctrls_ids[],
-	void **payloads, uint32_t payload_sizes[]);
+	size_t num_ctrls, uint32_t ctrls_ids[], void **payloads,
+	uint32_t payload_sizes[]);
 /* QBUF a buffer from the pending buffer queue if it is not empty. */
 static int qbuf_if_pending_buffer_exists_locked(struct encoder_context *ctx,
 	int fd);
@@ -348,12 +348,11 @@ static int ioctl_qbuf_locked(struct encoder_context *ctx, int fd,
 		return -EIO;
 	}
 	/* Set the encoder configuration to the driver. */
-	ret = set_encoder_config_locked(ctx, fd, buffer->index, num_ctrls, ctrl_ids,
-			payloads, payload_sizes);
+	ret = set_encoder_config_locked(ctx, fd, num_ctrls, ctrl_ids, payloads,
+			payload_sizes);
 	if (ret)
 		return ret;
 
-	buffer->config_store = buffer->index + 1;
 	ret = SYS_IOCTL(fd, VIDIOC_QBUF, buffer);
 	if (ret == 0)
 		ctx->can_qbuf = false;
@@ -390,9 +389,6 @@ static int ioctl_dqbuf_locked(struct encoder_context *ctx, int fd,
 		v4l2_ctrl.size = ctx->get_param_payload_size;
 		v4l2_ctrl.ptr = ctx->get_param_payload;
 		memset(&ext_ctrls, 0, sizeof(ext_ctrls));
-		/* TODO: change this to config_store after the header is
-		 * updated. */
-		ext_ctrls.ctrl_class = 0;
 		ext_ctrls.count = 1;
 		ext_ctrls.controls = &v4l2_ctrl;
 		ret = SYS_IOCTL(fd, VIDIOC_G_EXT_CTRLS, &ext_ctrls);
@@ -532,8 +528,8 @@ bool is_rockchip_encoder(int fd) {
 }
 
 int set_encoder_config_locked(struct encoder_context *ctx, int fd,
-		uint32_t buffer_index, size_t num_ctrls, uint32_t ctrl_ids[],
-		void **payloads, uint32_t payload_sizes[])
+		size_t num_ctrls, uint32_t ctrl_ids[], void **payloads,
+		uint32_t payload_sizes[])
 {
 	size_t i;
 	struct v4l2_ext_controls ext_ctrls;
@@ -547,8 +543,6 @@ int set_encoder_config_locked(struct encoder_context *ctx, int fd,
 		return -EIO;
 	}
 	memset(&ext_ctrls, 0, sizeof(ext_ctrls));
-	/* TODO: change this to config_store after the header is updated. */
-	ext_ctrls.ctrl_class = buffer_index + 1;
 	ext_ctrls.count = num_ctrls;
 	ext_ctrls.controls = ctx->v4l2_ctrls;
 	memset(ctx->v4l2_ctrls, 0, sizeof(ctx->v4l2_ctrls));
