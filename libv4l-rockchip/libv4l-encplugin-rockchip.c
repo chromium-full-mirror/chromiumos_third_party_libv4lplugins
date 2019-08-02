@@ -45,6 +45,7 @@
 #endif
 
 #define RK3288_VPU_NAME "rk3288-vpu-enc"
+#define HANTRO_VPU_NAME "hantro-vpu"
 #define DEFAULT_FRAME_RATE 30
 #define DEFAULT_BITRATE 1000000
 #define PENDING_BUFFER_QUEUE_SIZE VIDEO_MAX_FRAME
@@ -524,7 +525,9 @@ bool is_rockchip_encoder(int fd) {
 	int ret = SYS_IOCTL(fd, VIDIOC_QUERYCAP, &cap);
 	if (ret)
 		return false;
-	return strcmp(RK3288_VPU_NAME, (const char *)cap.driver) == 0;
+
+	return strcmp(RK3288_VPU_NAME, (const char *)cap.driver) == 0 ||
+	       strcmp(HANTRO_VPU_NAME, (const char *)cap.driver) == 0;
 }
 
 int set_encoder_config_locked(struct encoder_context *ctx, int fd,
