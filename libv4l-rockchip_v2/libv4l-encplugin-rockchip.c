@@ -162,6 +162,10 @@ static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_requestbuffers *reqbufs);
 static int ioctl_encoder_cmd_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_encoder_cmd *argp);
+static int ioctl_querymenu_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_querymenu *argp);
+static int ioctl_queryctrl_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_queryctrl *argp);
 
 /* Helper functions to manipulate the pending buffer queue. */
 
@@ -311,6 +315,14 @@ static int plugin_ioctl(void *dev_ops_priv, int fd,
 
 	case VIDIOC_ENCODER_CMD:
 		ret = ioctl_encoder_cmd_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_QUERYCTRL:
+		ret = ioctl_queryctrl_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_QUERYMENU:
+		ret = ioctl_querymenu_locked(ctx, fd, arg);
 		break;
 
 	default:
@@ -633,6 +645,43 @@ static int ioctl_encoder_cmd_locked(struct encoder_context *ctx, int fd,
 	return SYS_IOCTL(fd, VIDIOC_ENCODER_CMD, argp);
 }
 
+static int ioctl_querymenu_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_querymenu *argp)
+{
+
+	if (argp->id == V4L2_CID_MPEG_VIDEO_H264_PROFILE) {
+		/*
+		 * Return invalid unless the queried h264 profile is Main. The
+		 * hardware supports H264 Base, Main, High profile, but this
+		 * plugin supports Main profile only because Main profile is
+		 * hard-coded in h264e_init_sps().
+		 */
+		if (argp->index == V4L2_MPEG_VIDEO_H264_PROFILE_MAIN)
+			return 0;
+		return -EINVAL;
+	}
+	return SYS_IOCTL(fd, VIDIOC_QUERYMENU, argp);
+}
+
+static int ioctl_queryctrl_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_queryctrl *argp)
+{
+	if (argp->id == V4L2_CID_MPEG_VIDEO_H264_PROFILE) {
+		/*
+		 * Filter out other H264 profiles than Main profile. The
+		 * hardware supports H264 Base, Main, High profile, but this
+		 * plugin supports Main profile only because Main profile is
+		 * hard-coded in h264e_init_sps().
+		 */
+		argp->type = V4L2_CTRL_TYPE_MENU;
+		argp->minimum = argp->maximum = argp->default_value =
+			V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
+		argp->step = 1;
+		return 0;
+	}
+	return SYS_IOCTL(fd, VIDIOC_QUERYMENU, argp);
+}
+
 bool is_rockchip_encoder(int fd) {
 	struct v4l2_capability cap;
 	memset(&cap, 0, sizeof(cap));
@@ -863,6 +912,10 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 		return "VIDIOC_QUERYBUF";
 	case VIDIOC_ENCODER_CMD:
 		return "VIDIOC_ENCODER_CMD";
+	case VIDIOC_QUERYMENU:
+		return "VIDIOC_QUERYMENU";
+	case VIDIOC_QUERYCTRL:
+		return "VIDIOC_QUERYCTRL";
 	default:
 		return "UNKNOWN";
 	}
