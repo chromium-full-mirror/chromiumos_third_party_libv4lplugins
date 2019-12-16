@@ -679,7 +679,7 @@ static int ioctl_queryctrl_locked(struct encoder_context *ctx, int fd,
 		argp->step = 1;
 		return 0;
 	}
-	return SYS_IOCTL(fd, VIDIOC_QUERYMENU, argp);
+	return SYS_IOCTL(fd, VIDIOC_QUERYCTRL, argp);
 }
 
 bool is_rockchip_encoder(int fd) {
