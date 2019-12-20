@@ -197,6 +197,9 @@ static const char *v4l_cmd2str(unsigned long int cmd);
 static void get_log_level();
 static pthread_once_t g_get_log_level_once = PTHREAD_ONCE_INIT;
 
+/* Returns true when the H264 profile is supported. */
+static bool is_supported_h264_profile(uint8_t profile);
+
 static void *plugin_init(int fd)
 {
 	int ret;
@@ -501,6 +504,13 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 		case V4L2_CID_MPEG_VIDEO_H264_SPS_PPS_BEFORE_IDR:
 			ctx->init_param.h264e.h264_sps_pps_before_idr =
 				ext_ctrls->controls[i].value;
+			break;
+		case V4L2_CID_MPEG_VIDEO_H264_PROFILE:
+			if (!is_supported_h264_profile(ext_ctrls->controls[i].value))
+				return -EINVAL;
+			ctx->init_param.h264e.h264_profile =
+				ext_ctrls->controls[i].value;
+			break;
 		default:
 			break;
 		}
@@ -651,14 +661,15 @@ static int ioctl_querymenu_locked(struct encoder_context *ctx, int fd,
 
 	if (argp->id == V4L2_CID_MPEG_VIDEO_H264_PROFILE) {
 		/*
-		 * Return invalid unless the queried h264 profile is Main. The
-		 * hardware supports H264 Base, Main, High profile, but this
-		 * plugin supports Main profile only because Main profile is
-		 * hard-coded in h264e_init_sps().
+		 * Filter out other H264 profiles than Baseline and Main
+		 * profile. The hardware supports H264 Baseline, Main, High
+		 * profile, but this plugin supports Baseline and Main profile
+		 * only.
 		 */
-		if (argp->index == V4L2_MPEG_VIDEO_H264_PROFILE_MAIN)
-			return 0;
-		return -EINVAL;
+		if (!is_supported_h264_profile(argp->index)) {
+			return -EINVAL;
+		}
+		return 0;
 	}
 	return SYS_IOCTL(fd, VIDIOC_QUERYMENU, argp);
 }
@@ -668,13 +679,14 @@ static int ioctl_queryctrl_locked(struct encoder_context *ctx, int fd,
 {
 	if (argp->id == V4L2_CID_MPEG_VIDEO_H264_PROFILE) {
 		/*
-		 * Filter out other H264 profiles than Main profile. The
-		 * hardware supports H264 Base, Main, High profile, but this
-		 * plugin supports Main profile only because Main profile is
-		 * hard-coded in h264e_init_sps().
+		 * Filter out other H264 profiles than Baseline and Main
+		 * profile. The hardware supports H264 Baseline, Main, High
+		 * profile, but this plugin supports Baseline and Main profile
+		 * only.
 		 */
 		argp->type = V4L2_CTRL_TYPE_MENU;
-		argp->minimum = argp->maximum = argp->default_value =
+		argp->minimum = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
+		argp->maximum = argp->default_value =
 			V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
 		argp->step = 1;
 		return 0;
@@ -919,6 +931,12 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 	default:
 		return "UNKNOWN";
 	}
+}
+
+static bool is_supported_h264_profile(uint8_t profile) {
+	return profile == V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE ||
+		profile == V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE ||
+		profile == V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
 }
 
 PLUGIN_PUBLIC const struct libv4l_dev_ops libv4l2_plugin = {

@@ -30,9 +30,21 @@ const int32_t h264e_qp_tbl[2][11] = {
 	{ 27, 44, 72, 119, 192, 314, 453, 653, 952, 1395, 0x7FFFFFFF },
 	{ 51, 47, 43, 39, 35, 31, 27, 23, 19, 15, 11} };
 
-static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps)
+const int baseline_idc = 66;
+const int main_idc = 77;
+
+static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps, uint8_t profile)
 {
-	sps->profile_idc = 77;
+	switch(profile) {
+	case V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE:
+	case V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE:
+		sps->profile_idc = baseline_idc;
+		break;
+	case V4L2_MPEG_VIDEO_H264_PROFILE_MAIN:
+	default:
+		sps->profile_idc = main_idc;
+		break;
+	}
 
 	/* fixed values limited by hardware */
 	sps->constraint_set0_flag = 1;
@@ -67,13 +79,16 @@ static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps)
 	sps->vui_parameters_present_flag = 1;
 }
 
-static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps)
+static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps, uint8_t profile)
 {
 	pps->pic_parameter_set_id = 0;
 	pps->seq_parameter_set_id = 0;
 
-	/* enable cabac coding need set profile_idc large than 77 */
-	pps->entropy_coding_mode_flag = 1;
+	pps->entropy_coding_mode_flag = 0;
+	if (profile >= V4L2_MPEG_VIDEO_H264_PROFILE_MAIN) {
+		/* enable cabac coding need set profile_idc large than 77 */
+		pps->entropy_coding_mode_flag = 1;
+	}
 
 	/* fixed value limited by hardware */
 	pps->pic_order_present_flag = 0;
@@ -334,6 +349,7 @@ static void h264e_assemble_pps(struct rk_venc *ictx, struct stream_s *pps)
 		stream_write_se(pps, ctx->pps.chroma_qp_index_offset,
 				"chroma_qp_index_offset");
 	}
+
 	stream_put_bits(pps, 1, 1, "rbsp_stop_one_bit");
 
 	stream_buffer_flush(pps);
@@ -396,16 +412,17 @@ static int h264e_init(struct rk_venc *ictx,
 
 	ictx->fmt = ENC_FORMAT_H264;
 
-	h264e_init_sps(&ctx->sps);
-	h264e_init_pps(&ctx->pps);
-	h264e_init_slice(&ctx->slice);
-
 	ctx->h264_sps_pps_before_idr = param->h264e.h264_sps_pps_before_idr;
+	ctx->h264_profile = param->h264e.h264_profile;
 
 	ctx->width = param->width;
 	ctx->height = param->height;
 	ctx->slice_size_mb_rows = 0;
 	ctx->frm_in_gop = 0;
+
+	h264e_init_sps(&ctx->sps, ctx->h264_profile);
+	h264e_init_pps(&ctx->pps, ctx->h264_profile);
+	h264e_init_slice(&ctx->slice);
 
 	ctx->sps.pic_width_in_mbs = MB_COUNT(ctx->width);
 	ctx->sps.pic_height_in_map_units = MB_COUNT(ctx->height);
@@ -650,4 +667,3 @@ struct rk_venc* rk_h264_encoder_alloc_ctx(void)
 
 	return enc;
 }
-

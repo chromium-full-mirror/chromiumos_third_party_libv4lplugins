@@ -39,6 +39,7 @@ struct rk_vepu_init_param {
 	union {
 		struct {
 			bool h264_sps_pps_before_idr;
+			uint8_t h264_profile;
 		} h264e;
 	};
 };
@@ -121,4 +122,3 @@ int rk_vepu_update_param(void *enc,
 int rk_vepu_assemble_bitstream(void *enc, int fd, struct v4l2_buffer *buffer);
 
 #endif  // LIBVPU_RK_VEPU_INTERFACE_H_
-
