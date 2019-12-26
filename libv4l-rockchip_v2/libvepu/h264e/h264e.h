@@ -44,7 +44,6 @@ struct rk_h264_encoder {
 	char stream_header[H264E_MAX_STREAM_HEADER_SIZE];
 	int stream_header_size;
 	int h264_sps_pps_before_idr;
-	uint8_t h264_profile;
 
 	int width;
 	int height;

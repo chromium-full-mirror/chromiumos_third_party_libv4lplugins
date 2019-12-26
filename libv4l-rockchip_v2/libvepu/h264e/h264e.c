@@ -33,9 +33,50 @@ const int32_t h264e_qp_tbl[2][11] = {
 const int baseline_idc = 66;
 const int main_idc = 77;
 
-static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps, uint8_t profile)
+static uint8_t v4l2_level_to_h264_level(uint8_t level) {
+	switch (level) {
+	case V4L2_MPEG_VIDEO_H264_LEVEL_1_0:
+		return H264ENC_LEVEL_1;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_1B:
+		return H264ENC_LEVEL_1_b;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_1_1:
+		return H264ENC_LEVEL_1_1;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_1_2:
+		return H264ENC_LEVEL_1_2;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_1_3:
+		return H264ENC_LEVEL_1_3;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_2_0:
+		return H264ENC_LEVEL_2;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_2_1:
+		return H264ENC_LEVEL_2_1;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_2_2:
+		return H264ENC_LEVEL_2_2;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_3_0:
+		return H264ENC_LEVEL_3;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_3_1:
+		return H264ENC_LEVEL_3_1;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_3_2:
+		return H264ENC_LEVEL_3_2;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_4_0:
+		return H264ENC_LEVEL_4_0;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_4_1:
+		return H264ENC_LEVEL_4_1;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_4_2:
+		return 42;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_5_0:
+		return 50;
+	case V4L2_MPEG_VIDEO_H264_LEVEL_5_1:
+		return 51;
+	default:
+		fprintf(stderr, "Unknown h264 level=%d, use 4.0", (int) level);
+		return H264ENC_LEVEL_4_0;
+	};
+}
+
+
+static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps, uint8_t v4l2_profile, uint8_t v4l2_level)
 {
-	switch(profile) {
+	switch(v4l2_profile) {
 	case V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE:
 	case V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE:
 		sps->profile_idc = baseline_idc;
@@ -54,9 +95,7 @@ static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps, uint8_t profile)
 	/* if level idc == 1b, constraint_set3_flag need to be set true */
 	sps->constraint_set3_flag = 0;
 
-	/* if level max than 31, we prefer disable 4x4 mv mode
-	   to limit max mv count per 2mb */
-	sps->level_idc = H264ENC_LEVEL_4_0;
+	sps->level_idc = v4l2_level_to_h264_level(v4l2_level);
 	sps->seq_parameter_set_id = 0;
 
 	/* fixed values limited by hardware */
@@ -79,13 +118,13 @@ static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps, uint8_t profile)
 	sps->vui_parameters_present_flag = 1;
 }
 
-static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps, uint8_t profile)
+static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps, uint8_t v4l2_profile)
 {
 	pps->pic_parameter_set_id = 0;
 	pps->seq_parameter_set_id = 0;
 
 	pps->entropy_coding_mode_flag = 0;
-	if (profile >= V4L2_MPEG_VIDEO_H264_PROFILE_MAIN) {
+	if (v4l2_profile >= V4L2_MPEG_VIDEO_H264_PROFILE_MAIN) {
 		/* enable cabac coding need set profile_idc large than 77 */
 		pps->entropy_coding_mode_flag = 1;
 	}
@@ -413,15 +452,15 @@ static int h264e_init(struct rk_venc *ictx,
 	ictx->fmt = ENC_FORMAT_H264;
 
 	ctx->h264_sps_pps_before_idr = param->h264e.h264_sps_pps_before_idr;
-	ctx->h264_profile = param->h264e.h264_profile;
 
 	ctx->width = param->width;
 	ctx->height = param->height;
 	ctx->slice_size_mb_rows = 0;
 	ctx->frm_in_gop = 0;
 
-	h264e_init_sps(&ctx->sps, ctx->h264_profile);
-	h264e_init_pps(&ctx->pps, ctx->h264_profile);
+	h264e_init_sps(&ctx->sps, param->h264e.v4l2_h264_profile,
+		param->h264e.v4l2_h264_level);
+	h264e_init_pps(&ctx->pps, param->h264e.v4l2_h264_profile);
 	h264e_init_slice(&ctx->slice);
 
 	ctx->sps.pic_width_in_mbs = MB_COUNT(ctx->width);
@@ -441,6 +480,8 @@ static int h264e_init(struct rk_venc *ictx,
 
 	h264e_init_rc(ictx);
 
+	/* if level is 31 or greater, we prefer disable 4x4 mv mode
+	   to limit max mv count per 2mb */
 	if (ctx->sps.level_idc >= H264ENC_LEVEL_3_1)
 		ctx->h264_inter4x4_disabled = 1;
 	else

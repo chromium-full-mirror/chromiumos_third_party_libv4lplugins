@@ -39,7 +39,8 @@ struct rk_vepu_init_param {
 	union {
 		struct {
 			bool h264_sps_pps_before_idr;
-			uint8_t h264_profile;
+			uint8_t v4l2_h264_profile;
+			uint8_t v4l2_h264_level;
 		} h264e;
 	};
 };

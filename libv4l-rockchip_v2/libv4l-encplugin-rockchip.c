@@ -199,6 +199,8 @@ static pthread_once_t g_get_log_level_once = PTHREAD_ONCE_INIT;
 
 /* Returns true when the H264 profile is supported. */
 static bool is_supported_h264_profile(uint8_t profile);
+/* Returns true when the H264 true is supported. */
+static bool is_supported_h264_level(uint8_t level);
 
 static void *plugin_init(int fd)
 {
@@ -508,7 +510,13 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 		case V4L2_CID_MPEG_VIDEO_H264_PROFILE:
 			if (!is_supported_h264_profile(ext_ctrls->controls[i].value))
 				return -EINVAL;
-			ctx->init_param.h264e.h264_profile =
+			ctx->init_param.h264e.v4l2_h264_profile =
+				ext_ctrls->controls[i].value;
+			break;
+		case V4L2_CID_MPEG_VIDEO_H264_LEVEL:
+			if (!is_supported_h264_level(ext_ctrls->controls[i].value))
+				return -EINVAL;
+			ctx->init_param.h264e.v4l2_h264_level =
 				ext_ctrls->controls[i].value;
 			break;
 		default:
@@ -770,6 +778,9 @@ static int initialize_libvpu(struct encoder_context *ctx, int fd)
 {
 	struct rk_vepu_init_param init_param;
 	memset(&init_param, 0, sizeof(init_param));
+	/* The default value of h264 level is 4.0. */
+	init_param.h264e.v4l2_h264_level = V4L2_MPEG_VIDEO_H264_LEVEL_4_0;
+
 
 	/* Get the input format. */
 	struct v4l2_format format;
@@ -937,6 +948,11 @@ static bool is_supported_h264_profile(uint8_t profile) {
 	return profile == V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE ||
 		profile == V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE ||
 		profile == V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
+}
+
+static bool is_supported_h264_level(uint8_t level) {
+	// RK3399 is capable of encoding h264 whose level is 4.1 and lower.
+	return level <= V4L2_MPEG_VIDEO_H264_LEVEL_4_1;
 }
 
 PLUGIN_PUBLIC const struct libv4l_dev_ops libv4l2_plugin = {
