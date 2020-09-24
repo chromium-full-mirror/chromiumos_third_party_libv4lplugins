@@ -503,7 +503,6 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 		case V4L2_CID_MPEG_VIDEO_BITRATE:
 			runtime_param_ptr->bitrate = ext_ctrls->controls[i].value;
 			break;
-		case V4L2_CID_MPEG_VIDEO_H264_SPS_PPS_BEFORE_IDR:
 		case V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR:
 			ctx->init_param.h264e.h264_sps_pps_before_idr =
 				ext_ctrls->controls[i].value;
