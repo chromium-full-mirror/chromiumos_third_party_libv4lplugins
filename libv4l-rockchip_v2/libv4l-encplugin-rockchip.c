@@ -636,6 +636,14 @@ static int ioctl_g_crop_locked(struct encoder_context *ctx, int fd,
 static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 		struct v4l2_requestbuffers *reqbufs)
 {
+	/* b/170657091: this driver isn't happy if we request more than 2
+	 * buffers on the OUTPUT queue, so make the adjustment here.
+	 * It would be better to have this properly managed, but this is not
+	 * going to happen on the old 4.4 kernel.
+	 */
+	if (V4L2_TYPE_IS_OUTPUT(reqbufs->type) && reqbufs->count > 2u)
+		reqbufs->count = 2u;
+
 	int ret = SYS_IOCTL(fd, VIDIOC_REQBUFS, reqbufs);
 	if (ret)
 		return ret;
