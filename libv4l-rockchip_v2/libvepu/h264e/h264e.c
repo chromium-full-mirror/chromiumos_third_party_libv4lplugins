@@ -174,7 +174,7 @@ static void h264e_init_slice(struct v4l2_plugin_h264_slice_param *slice)
 	slice->slice_beta_offset_div2 = 0;
 }
 
-static void h264e_init_rc(struct rk_venc *ictx)
+static void h264e_init_rc(struct rk_venc *ictx, int32_t gop_len)
 {
 	struct rk_h264_encoder *ctx = (struct rk_h264_encoder *)ictx;
 	struct mb_qpctrl *qp_ctrl = &ctx->mbrc.qp_ctrl;
@@ -197,7 +197,11 @@ static void h264e_init_rc(struct rk_venc *ictx)
 	rc->vb.virt_bits_cnt = 0;
 	rc->vb.bucket_fullness = 0;
 	rc->vb.pic_time_inc = 0;
-	rc->gop_len = 150;
+	/*
+	 * gop_len == 0 means a key frame is never produced periodically. We
+	 * achieve this by setting the period to a sufficiently large value.
+	 */
+	rc->gop_len = gop_len > 0 ? gop_len : (1 << 30);
 	rc->qp_min = 10;
 	rc->qp_max = 51;
 	rc->mb_per_pic = MB_PER_PIC(ctx);
@@ -487,7 +491,7 @@ static int h264e_init(struct rk_venc *ictx,
 			>> 1;
 	}
 
-	h264e_init_rc(ictx);
+	h264e_init_rc(ictx, param->h264e.gop_len);
 
 	/* if level is 31 or greater, we prefer disable 4x4 mv mode
 	   to limit max mv count per 2mb */

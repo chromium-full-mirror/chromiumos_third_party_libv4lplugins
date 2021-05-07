@@ -519,6 +519,10 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 			ctx->init_param.h264e.v4l2_h264_level =
 				ext_ctrls->controls[i].value;
 			break;
+		case V4L2_CID_MPEG_VIDEO_GOP_SIZE:
+			ctx->init_param.h264e.gop_len =
+				ext_ctrls->controls[i].value;
+			break;
 		default:
 			break;
 		}
@@ -788,7 +792,8 @@ static int initialize_libvpu(struct encoder_context *ctx, int fd)
 	memset(&init_param, 0, sizeof(init_param));
 	/* The default value of h264 level is 4.0. */
 	init_param.h264e.v4l2_h264_level = V4L2_MPEG_VIDEO_H264_LEVEL_4_0;
-
+	/* The default value of h264 gop length is 12. (V4L2 default value) */
+	init_param.h264e.gop_len = 12;
 
 	/* Get the input format. */
 	struct v4l2_format format;
