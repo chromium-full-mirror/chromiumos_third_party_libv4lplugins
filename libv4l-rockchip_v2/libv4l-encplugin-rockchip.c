@@ -523,6 +523,42 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 			ctx->init_param.h264e.gop_len =
 				ext_ctrls->controls[i].value;
 			break;
+                case V4L2_CID_MPEG_VIDEO_H264_I_PERIOD:
+			/*
+			 * RK3399 cannot produce intra-only frame other than IDR
+			 * frame.
+			 */
+			if (ext_ctrls->controls[i].value != 0)
+				return -EINVAL;
+			break;
+                case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE:
+			switch (ext_ctrls->controls[i].value) {
+			case V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED:
+				ctx->init_param.h264e.disable_deblocking_filter_idc = 0;
+				break;
+			case V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED:
+				ctx->init_param.h264e.disable_deblocking_filter_idc = 1;
+				break;
+			default:
+				return -EINVAL;
+			}
+			break;
+                case V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE:
+			switch (ext_ctrls->controls[i].value) {
+			case V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC:
+				ctx->init_param.h264e.entropy_coding_mode_flag = false;
+				break;
+			case V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CABAC:
+				ctx->init_param.h264e.entropy_coding_mode_flag = true;
+				break;
+			default:
+				return -EINVAL;
+			}
+			break;
+                case V4L2_CID_MPEG_VIDEO_H264_8X8_TRANSFORM:
+			ctx->init_param.h264e.transform_8x8_mode_flag =
+				ext_ctrls->controls[i].value;
+			break;
 		default:
 			break;
 		}

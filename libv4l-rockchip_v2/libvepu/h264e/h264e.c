@@ -124,15 +124,18 @@ static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps, uint8_t v4l2_profil
 	sps->vui_parameters_present_flag = 1;
 }
 
-static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps, uint8_t v4l2_profile)
+static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps,
+			   uint8_t v4l2_profile,
+			   bool entropy_coding_mode_flag,
+			   bool transform_8x8_mode_flag)
 {
 	pps->pic_parameter_set_id = 0;
 	pps->seq_parameter_set_id = 0;
 
-	pps->entropy_coding_mode_flag = 0;
-	if (v4l2_profile >= V4L2_MPEG_VIDEO_H264_PROFILE_MAIN) {
-		/* enable cabac coding need set profile_idc large than 77 */
-		pps->entropy_coding_mode_flag = 1;
+	pps->entropy_coding_mode_flag = entropy_coding_mode_flag;
+	if (v4l2_profile < V4L2_MPEG_VIDEO_H264_PROFILE_MAIN) {
+		/* Entropy coding must be CAVLC if v4l2 profile is Baseline. */
+		pps->entropy_coding_mode_flag = 0;
 	}
 
 	/* fixed value limited by hardware */
@@ -155,21 +158,22 @@ static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps, uint8_t v4l2_profil
 	/* fixed value limited by hardware */
 	pps->redundant_pic_cnt_present_flag = 0;
 
-	pps->transform_8x8_mode_flag = 0;
-	if (v4l2_profile >= V4L2_MPEG_VIDEO_H264_PROFILE_HIGH) {
-		/* enable transform_8x8, need profile_idc large than 100 */
-		pps->transform_8x8_mode_flag = 1;
+	pps->transform_8x8_mode_flag = transform_8x8_mode_flag;
+	if (v4l2_profile < V4L2_MPEG_VIDEO_H264_PROFILE_HIGH) {
+		/* transform_8x8 must be disabled if a profile is less than High. */
+		pps->transform_8x8_mode_flag = 0;
 	}
 }
 
-static void h264e_init_slice(struct v4l2_plugin_h264_slice_param *slice)
+static void h264e_init_slice(struct v4l2_plugin_h264_slice_param *slice,
+			     uint8_t disable_deblocking_filter_idc)
 {
 	slice->slice_type = ISLICE;
 	slice->pic_parameter_set_id = 0;
 	slice->frame_num = 0;
 	slice->idr_pic_id = -1;
 	slice->cabac_init_idc = 0;
-	slice->disable_deblocking_filter_idc = 0;
+	slice->disable_deblocking_filter_idc = disable_deblocking_filter_idc;
 	slice->slice_alpha_c0_offset_div2 = 0;
 	slice->slice_beta_offset_div2 = 0;
 }
@@ -472,9 +476,12 @@ static int h264e_init(struct rk_venc *ictx,
 	ctx->frm_in_gop = 0;
 
 	h264e_init_sps(&ctx->sps, param->h264e.v4l2_h264_profile,
-		param->h264e.v4l2_h264_level);
-	h264e_init_pps(&ctx->pps, param->h264e.v4l2_h264_profile);
-	h264e_init_slice(&ctx->slice);
+		       param->h264e.v4l2_h264_level);
+	h264e_init_pps(&ctx->pps, param->h264e.v4l2_h264_profile,
+		       param->h264e.entropy_coding_mode_flag,
+		       param->h264e.transform_8x8_mode_flag);
+	h264e_init_slice(&ctx->slice,
+			 param->h264e.disable_deblocking_filter_idc);
 
 	ctx->sps.pic_width_in_mbs = MB_COUNT(ctx->width);
 	ctx->sps.pic_height_in_map_units = MB_COUNT(ctx->height);
