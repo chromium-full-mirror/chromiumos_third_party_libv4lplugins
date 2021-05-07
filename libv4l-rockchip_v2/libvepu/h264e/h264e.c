@@ -32,6 +32,7 @@ const int32_t h264e_qp_tbl[2][11] = {
 
 const int baseline_idc = 66;
 const int main_idc = 77;
+const int high_idc = 100;
 
 static uint8_t v4l2_level_to_h264_level(uint8_t level) {
 	switch (level) {
@@ -82,6 +83,11 @@ static void h264e_init_sps(struct v4l2_plugin_h264_sps *sps, uint8_t v4l2_profil
 		sps->profile_idc = baseline_idc;
 		break;
 	case V4L2_MPEG_VIDEO_H264_PROFILE_MAIN:
+		sps->profile_idc = main_idc;
+		break;
+	case V4L2_MPEG_VIDEO_H264_PROFILE_HIGH:
+		sps->profile_idc = high_idc;
+		break;
 	default:
 		sps->profile_idc = main_idc;
 		break;
@@ -149,8 +155,11 @@ static void h264e_init_pps(struct v4l2_plugin_h264_pps *pps, uint8_t v4l2_profil
 	/* fixed value limited by hardware */
 	pps->redundant_pic_cnt_present_flag = 0;
 
-	/* enable transform_8x8, need profile_idc large than 100 */
 	pps->transform_8x8_mode_flag = 0;
+	if (v4l2_profile >= V4L2_MPEG_VIDEO_H264_PROFILE_HIGH) {
+		/* enable transform_8x8, need profile_idc large than 100 */
+		pps->transform_8x8_mode_flag = 1;
+	}
 }
 
 static void h264e_init_slice(struct v4l2_plugin_h264_slice_param *slice)

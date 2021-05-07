@@ -955,7 +955,8 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 static bool is_supported_h264_profile(uint8_t profile) {
 	return profile == V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE ||
 		profile == V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE ||
-		profile == V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
+		profile == V4L2_MPEG_VIDEO_H264_PROFILE_MAIN ||
+		profile == V4L2_MPEG_VIDEO_H264_PROFILE_HIGH;
 }
 
 static bool is_supported_h264_level(uint8_t level) {
