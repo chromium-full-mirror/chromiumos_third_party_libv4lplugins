@@ -51,7 +51,7 @@ struct rk_h264_encoder {
 	int slice_size_mb_rows;
 	int h264_inter4x4_disabled;
 
-	int32_t frm_in_gop;
+	int frm_in_gop;
 
 	uint32_t rk_ctrl_ids[H264E_NUM_CTRLS];
 	void *rk_payloads[H264E_NUM_CTRLS];
