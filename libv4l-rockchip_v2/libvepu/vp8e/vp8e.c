@@ -42,7 +42,7 @@ static void vp8e_init_rc(struct rk_venc *ictx)
 	rc->vb.bucket_fullness = 0;
 	rc->vb.pic_time_inc = 0;
 	rc->gop_len = 150;
-	rc->qp_min = 30;
+	rc->qp_min = 4;
 	rc->qp_max = 127;
 	rc->mb_per_pic = MB_COUNT(ctx->width) * MB_COUNT(ctx->height);
 	rc->intra_qp_delta = -3;
@@ -258,4 +258,3 @@ struct rk_venc* rk_vp8_encoder_alloc_ctx(void)
 
 	return enc;
 }
-
