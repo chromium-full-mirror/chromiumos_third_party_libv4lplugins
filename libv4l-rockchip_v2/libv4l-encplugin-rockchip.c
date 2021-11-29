@@ -158,6 +158,10 @@ static int ioctl_s_crop_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_crop *crop);
 static int ioctl_g_crop_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_crop *crop);
+static int ioctl_s_selection_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_selection *sel);
+static int ioctl_g_selection_locked(struct encoder_context *ctx, int fd,
+	struct v4l2_selection *sel);
 static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 	struct v4l2_requestbuffers *reqbufs);
 static int ioctl_encoder_cmd_locked(struct encoder_context *ctx, int fd,
@@ -312,6 +316,14 @@ static int plugin_ioctl(void *dev_ops_priv, int fd,
 
 	case VIDIOC_G_CROP:
 		ret = ioctl_g_crop_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_S_SELECTION:
+		ret = ioctl_s_selection_locked(ctx, fd, arg);
+		break;
+
+	case VIDIOC_G_SELECTION:
+		ret = ioctl_g_selection_locked(ctx, fd, arg);
 		break;
 
 	case VIDIOC_REQBUFS:
@@ -669,6 +681,51 @@ static int ioctl_g_crop_locked(struct encoder_context *ctx, int fd,
 	return 0;
 }
 
+static int ioctl_s_selection_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_selection *sel)
+{
+	/*
+	 * We do not support offsets, and the crop size should not be
+	 * bigger than the frame size. In this case, we reset the crop
+	 * size to full frame size.
+	 */
+	if (sel->r.left != 0 || sel->r.top != 0 ||
+			sel->r.width > ctx->frame_width ||
+			sel->r.height > ctx->frame_height) {
+		sel->r.left = 0;
+		sel->r.top = 0;
+		sel->r.width = ctx->frame_width;
+		sel->r.height = ctx->frame_height;
+	}
+
+	uint32_t width = sel->r.width;
+	uint32_t height = sel->r.height;
+	int ret = SYS_IOCTL(fd, VIDIOC_S_SELECTION, sel);
+	if (ret || !V4L2_TYPE_IS_OUTPUT(sel->type))
+		return ret;
+
+	/* The width and height of H264 video should be even. */
+	if (ctx->output_format == V4L2_PIX_FMT_H264) {
+		width = round_down(width, 2);
+		height = round_down(height, 2);
+	}
+	ctx->crop_width = width;
+	ctx->crop_height = height;
+	return 0;
+}
+
+static int ioctl_g_selection_locked(struct encoder_context *ctx, int fd,
+		struct v4l2_selection *sel)
+{
+	int ret = SYS_IOCTL(fd, VIDIOC_G_SELECTION, sel);
+	if (ret || !V4L2_TYPE_IS_OUTPUT(sel->type))
+		return ret;
+
+	sel->r.width = ctx->crop_width;
+	sel->r.height = ctx->crop_height;
+	return 0;
+}
+
 static int ioctl_reqbufs_locked(struct encoder_context *ctx, int fd,
 		struct v4l2_requestbuffers *reqbufs)
 {
@@ -988,6 +1045,10 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 		return "VIDIOC_CREATE_BUFS";
 	case VIDIOC_PREPARE_BUF:
 		return "VIDIOC_PREPARE_BUF";
+	case VIDIOC_G_SELECTION:
+		return "VIDIOC_G_SELECTION";
+	case VIDIOC_S_SELECTION:
+		return "VIDIOC_S_SELECTION";
 	case VIDIOC_QUERY_EXT_CTRL:
 		return "VIDIOC_QUERY_EXT_CTRL";
 	default:
