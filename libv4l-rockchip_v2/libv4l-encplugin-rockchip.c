@@ -968,6 +968,8 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 		return "VIDIOC_QUERYCTRL";
 	case VIDIOC_QUERYMENU:
 		return "VIDIOC_QUERYMENU";
+	case VIDIOC_G_CROP:
+		return "VIDIOC_G_CROP";
 	case VIDIOC_S_CROP:
 		return "VIDIOC_S_CROP";
 	case VIDIOC_TRY_FMT:
@@ -976,12 +978,18 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 		return "VIDIOC_G_EXT_CTRLS";
 	case VIDIOC_S_EXT_CTRLS:
 		return "VIDIOC_S_EXT_CTRLS";
+	case VIDIOC_ENUM_FRAMESIZES:
+		return "VIDIOC_ENUM_FRAMESIZES";
 	case VIDIOC_ENCODER_CMD:
 		return "VIDIOC_ENCODER_CMD";
+	case VIDIOC_TRY_ENCODER_CMD:
+		return "VIDIOC_TRY_ENCODER_CMD";
 	case VIDIOC_CREATE_BUFS:
 		return "VIDIOC_CREATE_BUFS";
 	case VIDIOC_PREPARE_BUF:
 		return "VIDIOC_PREPARE_BUF";
+	case VIDIOC_QUERY_EXT_CTRL:
+		return "VIDIOC_QUERY_EXT_CTRL";
 	default:
 		return "UNKNOWN";
 	}
