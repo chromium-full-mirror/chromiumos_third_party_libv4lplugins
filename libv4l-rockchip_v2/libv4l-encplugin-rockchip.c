@@ -940,48 +940,48 @@ static const char* v4l_cmd2str(unsigned long int cmd)
 	switch (cmd) {
 	case VIDIOC_QUERYCAP:
 		return "VIDIOC_QUERYCAP";
-	case VIDIOC_TRY_FMT:
-		return "VIDIOC_TRY_FMT";
-	case VIDIOC_S_FMT:
-		return "VIDIOC_S_FMT";
-	case VIDIOC_G_FMT:
-		return "VIDIOC_G_FMT";
 	case VIDIOC_ENUM_FMT:
 		return "VIDIOC_ENUM_FMT";
-	case VIDIOC_S_PARM:
-		return "VIDIOC_S_PARM";
-	case VIDIOC_G_PARM:
-		return "VIDIOC_G_PARM";
+	case VIDIOC_G_FMT:
+		return "VIDIOC_G_FMT";
+	case VIDIOC_S_FMT:
+		return "VIDIOC_S_FMT";
+	case VIDIOC_REQBUFS:
+		return "VIDIOC_REQBUFS";
+	case VIDIOC_QUERYBUF:
+		return "VIDIOC_QUERYBUF";
 	case VIDIOC_QBUF:
 		return "VIDIOC_QBUF";
 	case VIDIOC_DQBUF:
 		return "VIDIOC_DQBUF";
-	case VIDIOC_PREPARE_BUF:
-		return "VIDIOC_PREPARE_BUF";
-	case VIDIOC_CREATE_BUFS:
-		return "VIDIOC_CREATE_BUFS";
-	case VIDIOC_REQBUFS:
-		return "VIDIOC_REQBUFS";
 	case VIDIOC_STREAMON:
 		return "VIDIOC_STREAMON";
 	case VIDIOC_STREAMOFF:
 		return "VIDIOC_STREAMOFF";
-	case VIDIOC_S_CROP:
-		return "VIDIOC_S_CROP";
+	case VIDIOC_G_PARM:
+		return "VIDIOC_G_PARM";
+	case VIDIOC_S_PARM:
+		return "VIDIOC_S_PARM";
 	case VIDIOC_S_CTRL:
 		return "VIDIOC_S_CTRL";
+	case VIDIOC_QUERYCTRL:
+		return "VIDIOC_QUERYCTRL";
+	case VIDIOC_QUERYMENU:
+		return "VIDIOC_QUERYMENU";
+	case VIDIOC_S_CROP:
+		return "VIDIOC_S_CROP";
+	case VIDIOC_TRY_FMT:
+		return "VIDIOC_TRY_FMT";
 	case VIDIOC_G_EXT_CTRLS:
 		return "VIDIOC_G_EXT_CTRLS";
 	case VIDIOC_S_EXT_CTRLS:
 		return "VIDIOC_S_EXT_CTRLS";
-	case VIDIOC_QUERYBUF:
-		return "VIDIOC_QUERYBUF";
 	case VIDIOC_ENCODER_CMD:
 		return "VIDIOC_ENCODER_CMD";
-	case VIDIOC_QUERYMENU:
-		return "VIDIOC_QUERYMENU";
-	case VIDIOC_QUERYCTRL:
-		return "VIDIOC_QUERYCTRL";
+	case VIDIOC_CREATE_BUFS:
+		return "VIDIOC_CREATE_BUFS";
+	case VIDIOC_PREPARE_BUF:
+		return "VIDIOC_PREPARE_BUF";
 	default:
 		return "UNKNOWN";
 	}
