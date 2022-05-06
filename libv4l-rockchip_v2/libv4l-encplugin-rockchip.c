@@ -711,6 +711,8 @@ static int ioctl_s_selection_locked(struct encoder_context *ctx, int fd,
 	}
 	ctx->crop_width = width;
 	ctx->crop_height = height;
+	sel->r.width = ctx->crop_width;
+	sel->r.height = ctx->crop_height;
 	return 0;
 }
 
