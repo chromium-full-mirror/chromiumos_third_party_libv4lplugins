@@ -515,6 +515,11 @@ static int ioctl_s_ext_ctrls_locked(struct encoder_context *ctx, int fd,
 		case V4L2_CID_MPEG_VIDEO_BITRATE:
 			runtime_param_ptr->bitrate = ext_ctrls->controls[i].value;
 			break;
+		case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
+			if (ext_ctrls->controls[i].value != V4L2_MPEG_VIDEO_BITRATE_MODE_CBR) {
+				return -EINVAL;
+			}
+			break;
 		case V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR:
 			ctx->init_param.h264e.h264_sps_pps_before_idr =
 				ext_ctrls->controls[i].value;
@@ -782,6 +787,13 @@ static int ioctl_querymenu_locked(struct encoder_context *ctx, int fd,
 		}
 		return 0;
 	}
+
+	if (argp->id == V4L2_CID_MPEG_VIDEO_BITRATE_MODE) {
+		if (argp->index != V4L2_CID_MPEG_VIDEO_BITRATE_MODE) {
+			return -EINVAL;
+		}
+		return 0;
+	}
 	return SYS_IOCTL(fd, VIDIOC_QUERYMENU, argp);
 }
 
@@ -802,6 +814,20 @@ static int ioctl_queryctrl_locked(struct encoder_context *ctx, int fd,
 		argp->step = 1;
 		return 0;
 	}
+
+
+	if (argp->id == V4L2_CID_MPEG_VIDEO_BITRATE_MODE) {
+		/*
+		 * Constant bitrate mode is only supported.
+		 */
+		argp->type = V4L2_CTRL_TYPE_MENU;
+		argp->minimum = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
+		argp->maximum = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
+		argp->default_value = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
+		argp->step = 1;
+		return 0;
+	}
+
 	return SYS_IOCTL(fd, VIDIOC_QUERYCTRL, argp);
 }
 
