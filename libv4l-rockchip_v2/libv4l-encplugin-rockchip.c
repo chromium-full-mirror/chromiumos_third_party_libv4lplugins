@@ -789,7 +789,7 @@ static int ioctl_querymenu_locked(struct encoder_context *ctx, int fd,
 	}
 
 	if (argp->id == V4L2_CID_MPEG_VIDEO_BITRATE_MODE) {
-		if (argp->index != V4L2_CID_MPEG_VIDEO_BITRATE_MODE) {
+		if (argp->index != V4L2_MPEG_VIDEO_BITRATE_MODE_CBR) {
 			return -EINVAL;
 		}
 		return 0;
@@ -824,7 +824,6 @@ static int ioctl_queryctrl_locked(struct encoder_context *ctx, int fd,
 		argp->minimum = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
 		argp->maximum = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
 		argp->default_value = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
-		argp->step = 1;
 		return 0;
 	}
 
