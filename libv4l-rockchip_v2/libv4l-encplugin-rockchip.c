@@ -48,6 +48,7 @@
 #define DEFAULT_BITRATE 1000000
 #define PENDING_BUFFER_QUEUE_SIZE VIDEO_MAX_FRAME
 #define round_down(x, y) ((x) - ((x) % (y)))
+#define round_up(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
 
 /*
  * struct pending_buffer - A v4l2 buffer pending for QBUF.
@@ -616,11 +617,26 @@ static int ioctl_s_parm_locked(struct encoder_context *ctx, int fd,
 	return SYS_IOCTL(fd, VIDIOC_S_PARM, parms);
 }
 
+#define DMA_ALIGNMENT	128
+#define MB_DIM		16
+
 static int ioctl_s_fmt_locked(struct encoder_context *ctx, int fd,
 		struct v4l2_format *format)
 {
 	uint32_t width = format->fmt.pix_mp.width;
 	uint32_t height = format->fmt.pix_mp.height;
+
+	/* b/251326397 handle sizeimage in Chromium
+	 * Align plane size to full cache line by adjusting the height.
+	 * Considering the I420 format, the height and width are multiple
+	 * of MB_DIM, and the size of uv plane is 1/2 of y plane in both
+	 * dimensions. The height should be multiple of (cache * 4 / MB_DIM)
+	 */
+	if (V4L2_TYPE_IS_OUTPUT(format->type) &&
+	    format->fmt.pix_mp.pixelformat == V4L2_PIX_FMT_YUV420M)
+		format->fmt.pix_mp.height = height =
+			round_up(height, DMA_ALIGNMENT * 4 / MB_DIM);
+
 	int ret = SYS_IOCTL(fd, VIDIOC_S_FMT, format);
 	if (ret)
 		return ret;
